@@ -49,10 +49,12 @@ class LSTM(nn.Module):
 
 class CNN(nn.Module):
     # as described in Appendix B
-    def __init__(self, memory):
+    def __init__(self, memory, read_heads):
         super(CNN, self).__init__()
-        input_channels = 2 if memory else 1
+        self.memory = memory
+        self.read_heads = read_heads
         
+        input_channels = 1 + read_heads if memory else 1
         self.conv1a = nn.Conv2d(input_channels, 8, 1, padding = 0)
         self.conv1b = nn.Conv2d(input_channels, 8, 3, padding = 1)
         self.conv1c = nn.Conv2d(input_channels, 8, 5, padding = 2)
@@ -202,11 +204,11 @@ class CDNA(nn.Module):
         return ans
 
 if __name__ == '__main__':
-    cnn = CNN(memory = True)
+    cnn = CNN(memory = True, read_heads = 5)
     print(cnn.num_params())
 
     qe = Variable(torch.FloatTensor(np.random.randn(10, # batch size is 10
-                                                    2, 28, 28)))
+                                                    6, 28, 28)))
     c = cnn(qe)
     #print(c[0])
     #print(c[1])
