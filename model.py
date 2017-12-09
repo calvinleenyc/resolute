@@ -65,7 +65,8 @@ class CNN(nn.Module):
         self.batchnormC = nn.BatchNorm2d(8)
         self.batchnormD = nn.BatchNorm2d(8)
 
-        self.conv2 = nn.Conv2d(32, 
+        self.conv2 = nn.Conv2d(32, 32, 3, stride = 2, padding = 1) # dimension-halving
+        self.batchnorm2 = nn.BatchNorm2d(32)
         
     def forward(self, x):
         # input x should have been pre-processed already: saturations in [-1, 1]
@@ -76,6 +77,8 @@ class CNN(nn.Module):
                                    self.batchnormD(self.conv1d(x))),
                                   dim = 1)
                         )
+        layer2 = F.relu(self.batchnorm2(self.conv2(layer1)))
+
         
         
         
