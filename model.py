@@ -202,14 +202,14 @@ class CDNA(nn.Module):
         return ans
 
 if __name__ == '__main__':
-    cnn = CNN(memory = False)
+    cnn = CNN(memory = True)
     print(cnn.num_params())
 
     qe = Variable(torch.FloatTensor(np.random.randn(10, # batch size is 10
-                                                    1, 28, 28)))
+                                                    2, 28, 28)))
     c = cnn(qe)
-    print(c[0])
-    print(c[1])
+    #print(c[0])
+    #print(c[1])
 
 if __name__ == '___main__':
 
