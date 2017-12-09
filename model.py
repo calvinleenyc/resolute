@@ -60,25 +60,49 @@ class CNN(nn.Module):
 
         # CAREFUL HERE
         # the text specifies that the batchnorm happens before the concatenation...
-        self.batchnormA = nn.BatchNorm2d(8)
-        self.batchnormB = nn.BatchNorm2d(8)
-        self.batchnormC = nn.BatchNorm2d(8)
-        self.batchnormD = nn.BatchNorm2d(8)
+        self.batchnorm1A = nn.BatchNorm2d(8)
+        self.batchnorm1B = nn.BatchNorm2d(8)
+        self.batchnorm1C = nn.BatchNorm2d(8)
+        self.batchnorm1D = nn.BatchNorm2d(8)
 
+        self.batchnorm2A = nn.BatchNorm2d(8)
+        self.batchnorm2B = nn.BatchNorm2d(8)
+        self.batchnorm2C = nn.BatchNorm2d(8)
+        self.batchnorm2D = nn.BatchNorm2d(8)
+        
         self.conv2 = nn.Conv2d(32, 32, 3, stride = 2, padding = 1) # dimension-halving
         self.batchnorm2 = nn.BatchNorm2d(32)
+
+        self.conv2a = nn.Conv2d(32, 8, 1, padding = 0)
+        self.conv2b = nn.Conv2d(32, 8, 3, padding = 1)
+        self.conv2c = nn.Conv2d(32, 8, 5, padding = 2)
+        self.conv2d = nn.Conv2d(32, 8, 7, padding = 3)
+
+        self.conv4 = nn.Conv2d(32, 64, 3, stride = 2, padding = 1)
+
+        self.dense = nn.Linear(7 * 7 * 64, 64)
         
     def forward(self, x):
         # input x should have been pre-processed already: saturations in [-1, 1]
         # shape of x is batch_size x input_channels x 28 x 28
-        layer1 = F.relu(torch.cat((self.batchnormA(self.conv1a(x)),
-                                   self.batchnormB(self.conv1b(x)),
-                                   self.batchnormC(self.conv1c(x)),
-                                   self.batchnormD(self.conv1d(x))),
+        layer1 = F.relu(torch.cat((self.batchnorm1A(self.conv1a(x)),
+                                   self.batchnorm1B(self.conv1b(x)),
+                                   self.batchnorm1C(self.conv1c(x)),
+                                   self.batchnorm1D(self.conv1d(x))),
                                   dim = 1)
                         )
         layer2 = F.relu(self.batchnorm2(self.conv2(layer1)))
 
+        layer3 = F.relu(torch.cat((self.batchnorm2A(self.conv2a(x)),
+                                   self.batchnorm2B(self.conv2b(x)),
+                                   self.batchnorm2C(self.conv2c(x)),
+                                   self.batchnorm2D(self.conv2d(x))),
+                                  dim = 1)
+                        )
+        layer4 = self.conv4(layer3)
+                                   
+        return self.dense(layer4.view([-1, 64 * 7 * 7]))
+                               
         
         
         
@@ -169,6 +193,10 @@ class CDNA(nn.Module):
         return ans
 
 if __name__ == '__main__':
+    cnn = CNN()
+    print(cnn.num_params())
+
+if __name__ == '___main__':
 
     # A test for a tricky part of the code
     qe = Variable(torch.FloatTensor(np.random.randn(11, 25, 10, 1)))
