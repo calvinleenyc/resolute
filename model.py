@@ -64,6 +64,8 @@ class CNN(nn.Module):
         self.batchnormB = nn.BatchNorm2d(8)
         self.batchnormC = nn.BatchNorm2d(8)
         self.batchnormD = nn.BatchNorm2d(8)
+
+        self.conv2 = nn.Conv2d(32, 
         
     def forward(self, x):
         # input x should have been pre-processed already: saturations in [-1, 1]
