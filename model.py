@@ -48,13 +48,13 @@ class LSTM(nn.Module):
         return ans
 
 class CNN(nn.Module):
-    # as described in Appendix B
-    def __init__(self, memory, read_heads):
+    # as described in Appendix B, except that Appendix B doesn't specify anything about
+    # how the results of the memory query are incorporated into the architecture.
+    def __init__(self, read_heads):
         super(CNN, self).__init__()
-        self.memory = memory
         self.read_heads = read_heads
         
-        input_channels = 1 + read_heads if memory else 1
+        input_channels = 1 + read_heads
         self.conv1a = nn.Conv2d(input_channels, 8, 1, padding = 0)
         self.conv1b = nn.Conv2d(input_channels, 8, 3, padding = 1)
         self.conv1c = nn.Conv2d(input_channels, 8, 5, padding = 2)
@@ -117,7 +117,69 @@ class CNN(nn.Module):
         return ans
     
         
+class TransposeCNN(nn.Module):
+    # According to the paper, this should be the transpose of the CNN given above.
+    def __init__(self):
+        # input size: BATCH_SIZE (= 10) x 32
+        super(TransposeCNN, self).__init__()
+        self.dense = nn.Linear(32, 64 * 7 * 7)
+        self.deconv4 = nn.ConvTranspose2d(64, 32, 2, stride = 2)
         
+        self.batchnorm2A = nn.BatchNorm2d(32)
+        self.batchnorm2B = nn.BatchNorm2d(32)
+        self.batchnorm2C = nn.BatchNorm2d(32)
+        self.batchnorm2D = nn.BatchNorm2d(32)
+
+        self.batchnorm1A = nn.BatchNorm2d(1)
+        self.batchnorm1B = nn.BatchNorm2d(1)
+        self.batchnorm1C = nn.BatchNorm2d(1)
+        self.batchnorm1D = nn.BatchNorm2d(1)
+
+        self.deconv2a = nn.ConvTranspose2d(8, 32, 1, padding = 0)
+        self.deconv2b = nn.ConvTranspose2d(8, 32, 3, padding = 1)
+        self.deconv2c = nn.ConvTranspose2d(8, 32, 5, padding = 2)
+        self.deconv2d = nn.ConvTranspose2d(8, 32, 7, padding = 3)
+
+        
+        self.deconv1a = nn.ConvTranspose2d(8, 1, 1, padding = 0)
+        self.deconv1b = nn.ConvTranspose2d(8, 1, 3, padding = 1)
+        self.deconv1c = nn.ConvTranspose2d(8, 1, 5, padding = 2)
+        self.deconv1d = nn.ConvTranspose2d(8, 1, 7, padding = 3)
+
+        
+        self.deconv2 = nn.ConvTranspose2d(32, 32, 2, stride = 2)
+
+        self.batchnorm2 = nn.BatchNorm2d(32)
+        
+    def forward(self, z):
+        layer4 = self.dense(z).view([-1, 64, 7, 7])
+        layer3 = F.relu(self.deconv4(layer4))
+
+        layer3a, layer3b, layer3c, layer3d = torch.split(layer3, split_size = 8, dim = 1)
+        layer2 = F.relu(self.batchnorm2A(self.deconv2a(layer3a)) +
+                        self.batchnorm2B(self.deconv2b(layer3b)) +
+                        self.batchnorm2C(self.deconv2c(layer3c)) +
+                        self.batchnorm2D(self.deconv2d(layer3d))
+        )
+        layer1 = F.relu(self.batchnorm2(self.deconv2(layer2)))
+        layer1a, layer1b, layer1c, layer1d = torch.split(layer1, split_size = 8, dim = 1)
+        layer0 = F.relu(self.batchnorm1A(self.deconv1a(layer1a)) +
+                        self.batchnorm1B(self.deconv1b(layer1b)) +
+                        self.batchnorm1C(self.deconv1c(layer1c)) +
+                        self.batchnorm1D(self.deconv1d(layer1d)))
+        
+        return layer0
+
+    def num_params(self):
+        ans = 0
+        for param in self.parameters():
+            sz = param.size()
+            here = 1
+            for dim in range(len(sz)):
+                here *= sz[dim]
+            ans += here
+        return ans
+                                  
 
 class CDNA(nn.Module):
     def __init__(self):
@@ -204,7 +266,7 @@ class CDNA(nn.Module):
         return ans
 
 if __name__ == '__main__':
-    cnn = CNN(memory = True, read_heads = 5)
+    cnn = CNN(read_heads = 5)
     print(cnn.num_params())
 
     qe = Variable(torch.FloatTensor(np.random.randn(10, # batch size is 10
@@ -212,6 +274,14 @@ if __name__ == '__main__':
     c = cnn(qe)
     #print(c[0])
     #print(c[1])
+
+    tcnn = TransposeCNN()
+    print(tcnn.num_params())
+
+    qe = Variable(torch.FloatTensor(np.random.randn(10,
+                                                    32)))
+    c = tcnn(qe)
+    print(c)
 
 if __name__ == '___main__':
 
