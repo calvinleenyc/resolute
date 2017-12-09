@@ -93,10 +93,10 @@ class CNN(nn.Module):
                         )
         layer2 = F.relu(self.batchnorm2(self.conv2(layer1)))
 
-        layer3 = F.relu(torch.cat((self.batchnorm2A(self.conv2a(x)),
-                                   self.batchnorm2B(self.conv2b(x)),
-                                   self.batchnorm2C(self.conv2c(x)),
-                                   self.batchnorm2D(self.conv2d(x))),
+        layer3 = F.relu(torch.cat((self.batchnorm2A(self.conv2a(layer2)),
+                                   self.batchnorm2B(self.conv2b(layer2)),
+                                   self.batchnorm2C(self.conv2c(layer2)),
+                                   self.batchnorm2D(self.conv2d(layer2))),
                                   dim = 1)
                         )
         layer4 = self.conv4(layer3)
@@ -104,7 +104,16 @@ class CNN(nn.Module):
         return self.dense(layer4.view([-1, 64 * 7 * 7]))
                                
         
-        
+    def num_params(self):
+        ans = 0
+        for param in self.parameters():
+            sz = param.size()
+            here = 1
+            for dim in range(len(sz)):
+                here *= sz[dim]
+            ans += here
+        return ans
+    
         
         
 
@@ -193,8 +202,14 @@ class CDNA(nn.Module):
         return ans
 
 if __name__ == '__main__':
-    cnn = CNN()
+    cnn = CNN(memory = False)
     print(cnn.num_params())
+
+    qe = Variable(torch.FloatTensor(np.random.randn(10, # batch size is 10
+                                                    1, 28, 28)))
+    c = cnn(qe)
+    print(c[0])
+    print(c[1])
 
 if __name__ == '___main__':
 
