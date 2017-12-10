@@ -241,32 +241,37 @@ class Unified(nn.Module):
         
         controller_hidden = self.rnn.initHidden()
         controller_cell = self.rnn.initCell()
-        memory = Variable(torch.zeros(BATCH_SIZE, self.seq_len, 32), requires_grad = False)
-        
+        memory = [Variable(torch.zeros(BATCH_SIZE, 32), requires_grad = False) for _ in range(self.seq_len)]
+
+        predicted_last_5 = []
+        kls = []
         for s in range(self.seq_len):
             # query the memory (Eqn. 10 in paper)
             mem_output = []
             for att, g in self.attentions:
                 w = att(controller_hidden)
-                phi = torch.squeeze(torch.matmul(torch.unsqueeze(w, dim = 1), memory))
+                phi = torch.squeeze(torch.matmul(torch.unsqueeze(w, dim = 1), torch.stack(memory, dim = 1)))
                 mem_output.append(phi * F.sigmoid(g))
                 
             z_distr = self.posterior(x_seq[s], mem_output)
             sampled_z = z_distr[0] + Variable(torch.randn(BATCH_SIZE, 32), requires_grad = False) * z_distr[1]
 
             x_distr = self.likelihood(sampled_z, mem_output)
+            if s >= self.seq_len - 5:
+                predicted_last_5.append(x_distr[0])
+                
             loss += torch.sum(x_distr[1] + np.log(2 * np.pi) + 0.5 * (x_distr[0] - x_seq[s]) * (x_distr[0] - x_seq[s]) * torch.exp(x_distr[1] * -2))
             
             kl_here = torch.sum(self.kl(z_distr, self.prior(mem_output)))
-            
+            kls.append(kl_here)
             loss += kl_here
             # update the memory
-            memory[:, s, :] = sampled_z
+            memory[s] = sampled_z
             
             # update the controller (Eqn. 9 in paper)
             controller_hidden, controller_cell = self.rnn(sampled_z, controller_hidden, controller_cell)
             
-        return loss
+        return loss, predicted_last_5, kls
     
 
 # MISCELLANEOUS TESTING - IGNORE IT
