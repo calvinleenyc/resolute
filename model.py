@@ -271,7 +271,7 @@ class Unified(nn.Module):
                 mem_output.append(phi * F.sigmoid(g))
                 
             z_distr = self.posterior(x_seq[s], mem_output)
-            sampled_z = z_distr[0] + Variable(torch.randn(BATCH_SIZE, 32).cuda(), requires_grad = False) * z_distr[1]
+            sampled_z = z_distr[0] + Variable(torch.randn(BATCH_SIZE, 32).cuda(), requires_grad = False) * torch.exp(z_distr[1])
 
             x_distr = self.likelihood(sampled_z, mem_output)
             if s >= self.seq_len - 5:
