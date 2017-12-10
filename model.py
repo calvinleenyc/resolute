@@ -6,7 +6,7 @@ from torch.autograd import Variable
 
 lr_rate = 0.001
 
-KERNEL_SIZE = 5
+BATCH_SIZE = 10
 
 def num_params(model):
     ans = 0
@@ -161,6 +161,7 @@ class TransposeCNN(nn.Module):
         return layer0
 
 class Prior(nn.Module):
+    # Paper says nothing about how the memory is used in the architecture...
     def __init__(self, read_heads):
         super(Prior, self).__init__()
         self.read_heads = read_heads
@@ -173,6 +174,37 @@ class Prior(nn.Module):
         ans = torch.unbind(self.cnn(torch.stack(restored_imgs, dim = 1)), dim = 1)
         # MAYBE: add a skip connection later, for faster / better training?
         return ans
+
+class Posterior(nn.Module):
+    # TODO: this is not tested
+    def __init__(self, read_heads):
+        super(Posterior, self).__init__()
+        self.read_heads = read_heads
+        self.cnn = CNN(read_heads + 1)
+        self.tcnn = TransposeCNN(1)
+
+    def forward(self, x, memory_output):
+        restored_imgs = [torch.squeeze(self.tcnn(memory_output[r])) for r in range(self.read_heads)]
+        restored_imgs.append(x)
+        ans = self.cnn(torch.stack(restored_imgs, dim = 1))
+        return torch.unbind(ans, dim = 1) # separates means and variances
+    
+class Likelihood(nn.Module):
+    # Paper says very little about this, so we do as we see fit
+    def __init__(self, read_heads):
+        super(Likelihood, self).__init__()
+        self.read_heads = read_heads
+        self.mem_tcnn = TransposeCNN(2)
+        self.z_tcnn = TransposeCNN(2)
+        self.combo = Variable(torch.randn(6))
+        
+    def forward(self, z, memory_output):
+        restored_imgs = [self.mem_tcnn(memory_output[r]) for r in range(self.read_heads)]
+        restored_z = self.z_tcnn(z)
+        ans = restored_z * self.combo[self.read_heads]
+        for i in range(self.read_heads):
+            ans += self.combo[i] * restored_imgs[i]
+        return torch.unbind(ans, dim = 1) # separates means and variances
 
 if __name__ == '__main__':
     cnn = CNN(6)
@@ -198,6 +230,12 @@ if __name__ == '__main__':
                                                     32)))
     c = p([qe, qe, qe, qe, qe])
     #print(c[0])
+
+    l = Likelihood(read_heads = 5)
+    print(num_params(l))
+
+    c = l(qe, [qe, qe, qe, qe, qe])
+    print(c)
     
     
 if __name__ == '___main__':
