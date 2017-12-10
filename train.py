@@ -46,14 +46,18 @@ class Trainer:
         loss, predicted_last_5, kls = self.unified(x_batch)
         loss.backward()
         self.optimizer.step()
-        if self.epoch % 100 == 1:
+        if self.epoch % 30 == 1:
             predictions = torch.stack(predicted_last_5, dim = 1)
             predictions = torch.unbind(predictions, dim = 0)
+            curr_batch = torch.unbind(x_batch, dim = 0)
             for b in range(BATCH_SIZE):
                 # send it to range (0,1)
-                seq = vutils.make_grid(predictions[b].data.cpu() / 2.0 + 0.5)
-                # self.writer.add_image('train_batch ' + str(b), seq, self.epoch)
-        
+                #print(predictions[b].data.cpu().size())
+                seq = vutils.make_grid(torch.unsqueeze(predictions[b].data.cpu(), dim = 1) / 2.0 + 0.5)
+                self.writer.add_image('train_batch ' + str(b), seq, self.epoch)
+            for b in range(BATCH_SIZE):
+                seq = vutils.make_grid(torch.unsqueeze(curr_batch[b].data.cpu(), dim = 1) / 2.0 + 0.5)
+                self.writer.add_image('x_batch ' + str(b), seq, self.epoch)
         
         self.writer.add_scalar('loss', loss.data.cpu().numpy(), self.epoch)
         self.writer.add_scalar('log_loss', np.log(loss.data.cpu().numpy()), self.epoch)

@@ -199,8 +199,11 @@ class Likelihood(nn.Module):
         restored_imgs = [self.mem_tcnn(memory_output[r]) for r in range(self.read_heads)]
         restored_z = self.z_tcnn(z)
         ans = restored_z * self.combo[self.read_heads]
+        #print(self.combo)
         for i in range(self.read_heads):
             ans += self.combo[i] * restored_imgs[i]
+        ans = F.tanh(ans)
+        #print(ans)
         return torch.unbind(ans, dim = 1) # separates means and variances
 
 class Attention(nn.Module):
@@ -277,7 +280,9 @@ class Unified(nn.Module):
             if s >= self.seq_len - 5:
                 predicted_last_5.append(x_distr[0])
                 
-            loss += torch.sum(x_distr[1] + np.log(2 * np.pi) + 0.5 * (x_distr[0] - x_seq[s]) * (x_distr[0] - x_seq[s]) * torch.exp(x_distr[1] * -2))
+            loss += torch.sum(x_distr[1] + np.log(2 * np.pi) +
+                              0.5 * (x_distr[0] - x_seq[s]) * (x_distr[0] - x_seq[s]) * torch.exp(x_distr[1] * -2))
+            
             
             kl_here = torch.sum(self.kl(z_distr, self.prior(mem_output)))
             kls.append(kl_here)
@@ -287,7 +292,8 @@ class Unified(nn.Module):
             
             # update the controller (Eqn. 9 in paper)
             controller_hidden, controller_cell = self.rnn(sampled_z, controller_hidden, controller_cell)
-            
+        print(loss)
+        print(sum(kls))
         return loss, predicted_last_5, kls
     
 
@@ -304,25 +310,20 @@ if __name__ == '__main__':
 
     tcnn = TransposeCNN(2)
     print(num_params(tcnn))
-
     qe = Variable(torch.FloatTensor(np.random.randn(10,
                                                     32)))
     c = tcnn(qe)
     #print(c)
-
     p = Prior(read_heads = 5)
     print(num_params(p))
     qe = Variable(torch.FloatTensor(np.random.randn(10,
                                                     32)))
     c = p([qe, qe, qe, qe, qe])
     #print(c[0])
-
     l = Likelihood(read_heads = 5)
     print(num_params(l))
-
     c = l(qe, [qe, qe, qe, qe, qe])
     #print(c)
-
     a = Attention(seq_len = 10)
     f = Variable(torch.randn(2, 64))
     #print(a(f))
@@ -331,12 +332,9 @@ if __name__ == '__main__':
     
     u = Unified(read_heads = 5, seq_len = 25)
     print(num_params(u))
-
     x_seq = Variable(torch.randn(10, 25, 28, 28))
     print(u(x_seq))
-
     exit(0)
-
     d = Variable(torch.randn(1), requires_grad = True)
     r = Variable(torch.randn(2), requires_grad = False)
     print(d)
