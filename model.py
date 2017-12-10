@@ -8,6 +8,16 @@ lr_rate = 0.001
 
 KERNEL_SIZE = 5
 
+def num_params(model):
+    ans = 0
+    for param in model.parameters():
+        sz = param.size()
+        here = 1
+        for dim in range(len(sz)):
+            here *= sz[dim]
+        ans += here
+    return ans
+
 class LSTM(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(LSTM, self).__init__()
@@ -36,25 +46,16 @@ class LSTM(nn.Module):
 
     def initCell(self):
         return Variable(torch.zeros(1, self.hidden_size))
-
-    def num_params(self):
-        ans = 0
-        for param in self.parameters():
-            sz = param.size()
-            here = 1
-            for dim in range(len(sz)):
-                here *= sz[dim]
-            ans += here
-        return ans
+        
 
 class CNN(nn.Module):
     # as described in Appendix B, except that Appendix B doesn't specify anything about
     # how the results of the memory query are incorporated into the architecture.
-    def __init__(self, read_heads):
+    def __init__(self, in_channels):
         super(CNN, self).__init__()
-        self.read_heads = read_heads
+        self.in_channels = in_channels
         
-        input_channels = 1 + read_heads
+        input_channels = in_channels
         self.conv1a = nn.Conv2d(input_channels, 8, 1, padding = 0)
         self.conv1b = nn.Conv2d(input_channels, 8, 3, padding = 1)
         self.conv1c = nn.Conv2d(input_channels, 8, 5, padding = 2)
@@ -103,23 +104,12 @@ class CNN(nn.Module):
                         )
         layer4 = self.conv4(layer3)
                                    
-        return self.dense(layer4.view([-1, 64 * 7 * 7]))
-                               
-        
-    def num_params(self):
-        ans = 0
-        for param in self.parameters():
-            sz = param.size()
-            here = 1
-            for dim in range(len(sz)):
-                here *= sz[dim]
-            ans += here
-        return ans
+        return self.dense(layer4.view([-1, 64 * 7 * 7])).view([-1, 2, 32])
     
         
 class TransposeCNN(nn.Module):
     # According to the paper, this should be the transpose of the CNN given above.
-    def __init__(self):
+    def __init__(self, out_ch):
         # input size: BATCH_SIZE (= 10) x 32
         super(TransposeCNN, self).__init__()
         self.dense = nn.Linear(32, 64 * 7 * 7)
@@ -130,10 +120,10 @@ class TransposeCNN(nn.Module):
         self.batchnorm2C = nn.BatchNorm2d(32)
         self.batchnorm2D = nn.BatchNorm2d(32)
 
-        self.batchnorm1A = nn.BatchNorm2d(1)
-        self.batchnorm1B = nn.BatchNorm2d(1)
-        self.batchnorm1C = nn.BatchNorm2d(1)
-        self.batchnorm1D = nn.BatchNorm2d(1)
+        self.batchnorm1A = nn.BatchNorm2d(out_ch)
+        self.batchnorm1B = nn.BatchNorm2d(out_ch)
+        self.batchnorm1C = nn.BatchNorm2d(out_ch)
+        self.batchnorm1D = nn.BatchNorm2d(out_ch)
 
         self.deconv2a = nn.ConvTranspose2d(8, 32, 1, padding = 0)
         self.deconv2b = nn.ConvTranspose2d(8, 32, 3, padding = 1)
@@ -141,10 +131,10 @@ class TransposeCNN(nn.Module):
         self.deconv2d = nn.ConvTranspose2d(8, 32, 7, padding = 3)
 
         
-        self.deconv1a = nn.ConvTranspose2d(8, 1, 1, padding = 0)
-        self.deconv1b = nn.ConvTranspose2d(8, 1, 3, padding = 1)
-        self.deconv1c = nn.ConvTranspose2d(8, 1, 5, padding = 2)
-        self.deconv1d = nn.ConvTranspose2d(8, 1, 7, padding = 3)
+        self.deconv1a = nn.ConvTranspose2d(8, out_ch, 1, padding = 0)
+        self.deconv1b = nn.ConvTranspose2d(8, out_ch, 3, padding = 1)
+        self.deconv1c = nn.ConvTranspose2d(8, out_ch, 5, padding = 2)
+        self.deconv1d = nn.ConvTranspose2d(8, out_ch, 7, padding = 3)
 
         
         self.deconv2 = nn.ConvTranspose2d(32, 32, 2, stride = 2)
@@ -163,111 +153,30 @@ class TransposeCNN(nn.Module):
         )
         layer1 = F.relu(self.batchnorm2(self.deconv2(layer2)))
         layer1a, layer1b, layer1c, layer1d = torch.split(layer1, split_size = 8, dim = 1)
-        layer0 = F.relu(self.batchnorm1A(self.deconv1a(layer1a)) +
-                        self.batchnorm1B(self.deconv1b(layer1b)) +
-                        self.batchnorm1C(self.deconv1c(layer1c)) +
-                        self.batchnorm1D(self.deconv1d(layer1d)))
+        layer0 = (self.batchnorm1A(self.deconv1a(layer1a)) +
+                  self.batchnorm1B(self.deconv1b(layer1b)) +
+                  self.batchnorm1C(self.deconv1c(layer1c)) +
+                  self.batchnorm1D(self.deconv1d(layer1d)))
         
         return layer0
 
-    def num_params(self):
-        ans = 0
-        for param in self.parameters():
-            sz = param.size()
-            here = 1
-            for dim in range(len(sz)):
-                here *= sz[dim]
-            ans += here
-        return ans
-                                  
-
-class CDNA(nn.Module):
-    def __init__(self):
-        super(CDNA, self).__init__()
-        self.conv1 = nn.Conv2d(3, 32, KERNEL_SIZE, stride = 2, padding = 2)
-        self.lstm1 = ConvLSTM(32, 32, 32)
-        self.lstm2 = ConvLSTM(32, 32, 32)
-        self.downsample23 = nn.Conv2d(32, 64, 2, stride = 2)
-        self.lstm3 = ConvLSTM(16, 64, 64)
-        self.lstm4 = ConvLSTM(16, 64, 64)
-        self.downsample45 = nn.Conv2d(64, 128, 2, stride = 2)
-        self.lstm5 = ConvLSTM(8, 138, 138)
-        self.to_kernels = nn.Linear(138 * 8 * 8, 10 * 5 * 5)
-        self.upsample56 = nn.ConvTranspose2d(138, 64, 2, stride = 2)
-        self.lstm6 = ConvLSTM(16, 64, 64)
-        self.upsample67 = nn.ConvTranspose2d(64 + 64, 32, 2, stride = 2)
-        self.lstm7 = ConvLSTM(32, 32, 32)
-        # the end of the diagram is ambiguous
-        self.last_upsample = nn.ConvTranspose2d(32 + 32, 32, 2, stride = 2) 
-        self.conv2 = nn.Conv2d(32, 11, kernel_size = 1)
-
-        # For some reason, F.softmax(x, dim = 2) doesn't work on my machine,
-        # so I use this instead: given a 4D tensor, it softmaxes dimension 1.
-        self.softmax = nn.Softmax2d()
+class Prior(nn.Module):
+    def __init__(self, read_heads):
+        super(Prior, self).__init__()
+        self.read_heads = read_heads
+        self.cnn = CNN(read_heads)
+        self.tcnn = TransposeCNN(1)
         
-    def forward(self, img, tiled, hiddens, cells):
-        # input is preprocessed with numpy (at least for now)
-        layer0 = self.conv1(img)
-        hidden1, cell1 = self.lstm1(layer0, hiddens[1], cells[1])
-        hidden2, cell2 = self.lstm2(hidden1, hiddens[2], cells[2])
-        hidden3, cell3 = self.lstm3(self.downsample23(hidden2), hiddens[3], cells[3])
-        hidden4, cell4 = self.lstm4(hidden3, hiddens[4], cells[4])
-        
-        input5 = torch.cat((self.downsample45(hidden4), tiled), 1)
-        hidden5, cell5 = self.lstm5(input5, hiddens[5], cells[5])
-
-        kernels = self.to_kernels(hidden5.view([-1, 138 * 8 * 8])).view([-1, 25, 10, 1])
-        # NOT a channel softmax, but a spatial one
-        normalized_kernels = torch.transpose(self.softmax(kernels), 1, 2)
-        normalized_kernels = torch.stack(torch.split(torch.squeeze(normalized_kernels), 5, dim = 2), dim = -2)
-        # We will wait to transform the images until we compute the loss.
-
-        hidden6, cell6 = self.lstm6(self.upsample56(hidden5), hiddens[6], cells[6])
-        input7 = self.upsample67(torch.cat((hidden6, hidden3), 1))
-        hidden7, cell7 = self.lstm7(input7, hiddens[7], cells[7])
-
-        input_out = self.last_upsample(torch.cat((hidden7, hidden1), 1))
-        out = self.softmax(self.conv2(input_out)) # channel softmax
-
-        return out, normalized_kernels, [None, hidden1, hidden2, hidden3, hidden4, hidden5, hidden6, hidden7],\
-            [None, cell1, cell2, cell3, cell4, cell5, cell6, cell7]
-
-    def initHidden(self, batch_size = 1):
-        # The first entry is just so that the indexing aligns with the semantics
-        return [None,
-                self.lstm1.initHidden(batch_size),
-                self.lstm2.initHidden(batch_size),
-                self.lstm3.initHidden(batch_size),
-                self.lstm4.initHidden(batch_size),
-                self.lstm5.initHidden(batch_size),
-                self.lstm6.initHidden(batch_size),
-                self.lstm7.initHidden(batch_size),
-        ]
-
-    def initCell(self, batch_size = 1):
-        return [None,
-                self.lstm1.initCell(batch_size),
-                self.lstm2.initCell(batch_size),
-                self.lstm3.initCell(batch_size),
-                self.lstm4.initCell(batch_size),
-                self.lstm5.initCell(batch_size),
-                self.lstm6.initCell(batch_size),
-                self.lstm7.initCell(batch_size),
-        ]
-
-    def num_params(self):
-        ans = 0
-        for param in self.parameters():
-            sz = param.size()
-            here = 1
-            for dim in range(len(sz)):
-                here *= sz[dim]
-            ans += here
+    def forward(self, memory_output):
+        restored_imgs = [torch.squeeze(self.tcnn(memory_output[r])) for r in range(self.read_heads)]
+        #print(restored_imgs[0].size())
+        ans = torch.unbind(self.cnn(torch.stack(restored_imgs, dim = 1)), dim = 1)
+        # MAYBE: add a skip connection later, for faster / better training?
         return ans
 
 if __name__ == '__main__':
-    cnn = CNN(read_heads = 5)
-    print(cnn.num_params())
+    cnn = CNN(6)
+    print(num_params(cnn))
 
     qe = Variable(torch.FloatTensor(np.random.randn(10, # batch size is 10
                                                     6, 28, 28)))
@@ -275,14 +184,22 @@ if __name__ == '__main__':
     #print(c[0])
     #print(c[1])
 
-    tcnn = TransposeCNN()
-    print(tcnn.num_params())
+    tcnn = TransposeCNN(2)
+    print(num_params(tcnn))
 
     qe = Variable(torch.FloatTensor(np.random.randn(10,
                                                     32)))
     c = tcnn(qe)
-    print(c)
+    #print(c)
 
+    p = Prior(read_heads = 5)
+    print(num_params(p))
+    qe = Variable(torch.FloatTensor(np.random.randn(10,
+                                                    32)))
+    c = p([qe, qe, qe, qe, qe])
+    #print(c[0])
+    
+    
 if __name__ == '___main__':
 
     # A test for a tricky part of the code
