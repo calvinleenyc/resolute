@@ -8,6 +8,8 @@ lr_rate = 0.001
 
 CONTROLLER_SIZE = 64
 
+BATCH_SIZE = 10
+
 def num_params(model):
     ans = 0
     for param in model.parameters():
@@ -19,7 +21,7 @@ def num_params(model):
     return ans
 
 class LSTM(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
+    def __init__(self, input_size, hidden_size):
         super(LSTM, self).__init__()
         self.hidden_size = hidden_size
         
@@ -27,9 +29,6 @@ class LSTM(nn.Module):
         self.i2I = nn.Linear(input_size + hidden_size, hidden_size)
         self.i2O = nn.Linear(input_size + hidden_size, hidden_size)
         self.i2C = nn.Linear(input_size + hidden_size, hidden_size)
-        self.H2out = nn.Linear(hidden_size, output_size)
-
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=lr_rate)
         
     def forward(self, input, hidden, cell):
         combined = torch.cat((input, hidden), 1)
@@ -38,15 +37,13 @@ class LSTM(nn.Module):
         O = F.sigmoid(self.i2O(combined))
         C = forget * cell + I * F.tanh(self.i2C(combined))
         H = O * F.tanh(C)
-        output = F.log_softmax(self.H2out(H))
-        return output, H, C
+        return H, C
 
     def initHidden(self):
-        return Variable(torch.zeros(1, self.hidden_size))
+        return Variable(torch.zeros(BATCH_SIZE, self.hidden_size), requires_grad = False)
 
     def initCell(self):
-        return Variable(torch.zeros(1, self.hidden_size))
-        
+        return Variable(torch.zeros(BATCH_SIZE, self.hidden_size), requires_grad = False)
 
 class CNN(nn.Module):
     # as described in Appendix B, except that Appendix B doesn't specify anything about
@@ -196,7 +193,7 @@ class Likelihood(nn.Module):
         self.read_heads = read_heads
         self.mem_tcnn = TransposeCNN(2)
         self.z_tcnn = TransposeCNN(2)
-        self.combo = Variable(torch.randn(6))
+        self.combo = Variable(torch.randn(6), requires_grad = True)
         
     def forward(self, z, memory_output):
         restored_imgs = [self.mem_tcnn(memory_output[r]) for r in range(self.read_heads)]
@@ -209,19 +206,70 @@ class Likelihood(nn.Module):
 class Attention(nn.Module):
     # Not much discussion in paper about this architecture, either.
     def __init__(self, seq_len):
+        super(Attention, self).__init__()
         self.dense0 = nn.Linear(CONTROLLER_SIZE, 128)
         self.dense1 = nn.Linear(128, 128)
         self.dense2 = nn.Linear(128, seq_len)
 
     def forward(self, h):
-        return self.dense2(F.relu(self.dense1(F.relu(self.dense0(h)))))
+        ans = self.dense2(F.relu(self.dense1(F.relu(self.dense0(h)))))
+        # softplus, as specified in the paper
+        ans = F.softplus(ans)
+        return ans / torch.sum(ans, dim = 1, keepdim = True)
 
+class Unified(nn.Module):
+    def __init__(self, read_heads, seq_len):
+        super(Unified, self).__init__()
+        self.read_heads = read_heads
+        self.seq_len = seq_len
+        
+        self.prior = Prior(read_heads = read_heads)
+        self.posterior = Posterior(read_heads = read_heads)
+        self.likelihood = Likelihood(read_heads = read_heads)
+        self.attentions = [(Attention(seq_len = seq_len), Variable(torch.randn(1), requires_grad = True)) for _ in range(read_heads)]
+        self.rnn = LSTM(input_size = 32, hidden_size = CONTROLLER_SIZE)
 
+    def kl(self, g1, g2):
+        ans = -0.5 + g2[1] - g1[1] + (torch.exp(g1[1] * 2) + (g1[0] - g2[0]) * (g1[0] - g2[0])) * 0.5 * torch.exp(-2 * g2[1])
+        return ans
+    
+    def forward(self, x_seq):
+        loss = 0.0 # negative variational lower bound
+        
+        # BATCH_SIZE (= 10) x seq_len x 28 x 28
+        x_seq = torch.unbind(x_seq, dim = 1) # remember, this is a BATCH
+        
+        controller_hidden = self.rnn.initHidden()
+        controller_cell = self.rnn.initCell()
+        memory = Variable(torch.zeros(BATCH_SIZE, self.seq_len, 32), requires_grad = False)
+        
+        for s in range(self.seq_len):
+            # query the memory (Eqn. 10 in paper)
+            mem_output = []
+            for att, g in self.attentions:
+                w = att(controller_hidden)
+                phi = torch.squeeze(torch.matmul(torch.unsqueeze(w, dim = 1), memory))
+                mem_output.append(phi * F.sigmoid(g))
+                
+            z_distr = self.posterior(x_seq[s], mem_output)
+            sampled_z = z_distr[0] + Variable(torch.randn(BATCH_SIZE, 32), requires_grad = False) * z_distr[1]
 
-
-
+            x_distr = self.likelihood(sampled_z, mem_output)
+            loss += torch.sum(x_distr[1] + np.log(2 * np.pi) + 0.5 * (x_distr[0] - x_seq[s]) * (x_distr[0] - x_seq[s]) * torch.exp(x_distr[1] * -2))
+            
+            kl_here = torch.sum(self.kl(z_distr, self.prior(mem_output)))
+            
+            loss += kl_here
+            # update the memory
+            memory[:, s, :] = sampled_z
+            
+            # update the controller (Eqn. 9 in paper)
+            controller_hidden, controller_cell = self.rnn(sampled_z, controller_hidden, controller_cell)
+            
+        return loss
     
 
+# MISCELLANEOUS TESTING - IGNORE IT
 if __name__ == '__main__':
     cnn = CNN(6)
     print(num_params(cnn))
@@ -251,4 +299,28 @@ if __name__ == '__main__':
     print(num_params(l))
 
     c = l(qe, [qe, qe, qe, qe, qe])
-    print(c)
+    #print(c)
+
+    a = Attention(seq_len = 10)
+    f = Variable(torch.randn(2, 64))
+    #print(a(f))
+    b = Attention(seq_len = 10)
+    #print(b(f))
+    
+    u = Unified(read_heads = 5, seq_len = 25)
+    print(num_params(u))
+
+    x_seq = Variable(torch.randn(10, 25, 28, 28))
+    print(u(x_seq))
+
+    exit(0)
+
+    d = Variable(torch.randn(1), requires_grad = True)
+    r = Variable(torch.randn(2), requires_grad = False)
+    print(d)
+    print(r)
+    r[0] = d
+    print(r)
+    e = F.mse_loss(r[0], Variable(torch.zeros(1)))
+    e.backward()
+    print(d.grad.data)
