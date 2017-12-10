@@ -6,7 +6,7 @@ from torch.autograd import Variable
 
 lr_rate = 0.001
 
-BATCH_SIZE = 10
+CONTROLLER_SIZE = 64
 
 def num_params(model):
     ans = 0
@@ -206,6 +206,22 @@ class Likelihood(nn.Module):
             ans += self.combo[i] * restored_imgs[i]
         return torch.unbind(ans, dim = 1) # separates means and variances
 
+class Attention(nn.Module):
+    # Not much discussion in paper about this architecture, either.
+    def __init__(self, seq_len):
+        self.dense0 = nn.Linear(CONTROLLER_SIZE, 128)
+        self.dense1 = nn.Linear(128, 128)
+        self.dense2 = nn.Linear(128, seq_len)
+
+    def forward(self, h):
+        return self.dense2(F.relu(self.dense1(F.relu(self.dense0(h)))))
+
+
+
+
+
+    
+
 if __name__ == '__main__':
     cnn = CNN(6)
     print(num_params(cnn))
@@ -236,52 +252,3 @@ if __name__ == '__main__':
 
     c = l(qe, [qe, qe, qe, qe, qe])
     print(c)
-    
-    
-if __name__ == '___main__':
-
-    # A test for a tricky part of the code
-    qe = Variable(torch.FloatTensor(np.random.randn(11, 25, 10, 1)))
-    qe = torch.transpose(qe, 1, 2)
-    ans1 = qe.contiguous().view([-1, 10, 5, 5])
-    ans2 = torch.stack(torch.split(torch.squeeze(qe), 5, dim = 2), dim = -2)
-    print(type(ans1))
-    print(type(ans2))
-    print(F.mse_loss(ans1, ans2))
-    #exit(0) # Experiments show that ans2 is slightly faster to compute
-
-
-    
-    rnn = CDNA()
-    
-    print(rnn.num_params())
-
-    img = np.zeros([3, 64, 64])
-    tiled = np.zeros([10, 8, 8])
-
-    img = Variable(torch.FloatTensor([img, img, img, img]))
-    tiled = Variable(torch.FloatTensor([tiled, tiled, tiled, tiled]))
-
-    hidden = rnn.initHidden(4)
-    cell = rnn.initCell(4)
-
-    q = rnn(img, tiled, hidden, cell)
-    print(q[0])
-    print(q[1])
-
-    qq = q[1].data.numpy()
-    print(np.sum(qq[2,4,:,:]))
-
-    qqq = q[0].data.numpy()
-    print(np.sum(qqq[2,:,2,3]))
-
-    loss_fn = nn.MSELoss()
-
-    print(q[0][0][0][0][0])
-    loss = q[0][0][0][0][0]
-    print(loss)
-    loss.backward()
-
-    optim = torch.optim.Adam(rnn.parameters(), lr = 0.001)
-    optim.step()
-    print(rnn.num_params()) # Concerning: should be 12.6M...?  Maybe the CDNA is special?
