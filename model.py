@@ -40,10 +40,10 @@ class LSTM(nn.Module):
         return H, C
 
     def initHidden(self):
-        return Variable(torch.zeros(BATCH_SIZE, self.hidden_size), requires_grad = False)
+        return Variable(torch.zeros(BATCH_SIZE, self.hidden_size).cuda(), requires_grad = False)
 
     def initCell(self):
-        return Variable(torch.zeros(BATCH_SIZE, self.hidden_size), requires_grad = False)
+        return Variable(torch.zeros(BATCH_SIZE, self.hidden_size).cuda(), requires_grad = False)
 
 class CNN(nn.Module):
     # as described in Appendix B, except that Appendix B doesn't specify anything about
@@ -193,7 +193,7 @@ class Likelihood(nn.Module):
         self.read_heads = read_heads
         self.mem_tcnn = TransposeCNN(2)
         self.z_tcnn = TransposeCNN(2)
-        self.combo = Variable(torch.randn(6), requires_grad = True)
+        self.combo = nn.Parameter(torch.randn(6).cuda(), requires_grad = True)
         
     def forward(self, z, memory_output):
         restored_imgs = [self.mem_tcnn(memory_output[r]) for r in range(self.read_heads)]
@@ -215,7 +215,7 @@ class Attention(nn.Module):
         ans = self.dense2(F.relu(self.dense1(F.relu(self.dense0(h)))))
         # softplus, as specified in the paper
         ans = F.softplus(ans)
-        return ans / torch.sum(ans, dim = 1, keepdim = True)
+        return ans / torch.unsqueeze(torch.sum(ans, dim = 1), dim = 1)
 
 class Unified(nn.Module):
     def __init__(self, read_heads, seq_len):
@@ -226,7 +226,23 @@ class Unified(nn.Module):
         self.prior = Prior(read_heads = read_heads)
         self.posterior = Posterior(read_heads = read_heads)
         self.likelihood = Likelihood(read_heads = read_heads)
-        self.attentions = [(Attention(seq_len = seq_len), Variable(torch.randn(1), requires_grad = True)) for _ in range(read_heads)]
+        self.attention1 = Attention(seq_len)
+        self.attention2 = Attention(seq_len)
+        self.attention3 = Attention(seq_len)
+        self.attention4 = Attention(seq_len)
+        self.attention5 = Attention(seq_len)
+        self.g1 = nn.Parameter(torch.randn(1).cuda(), requires_grad = True)
+        self.g2 = nn.Parameter(torch.randn(1).cuda(), requires_grad = True)
+        self.g3 = nn.Parameter(torch.randn(1).cuda(), requires_grad = True)
+        self.g4 = nn.Parameter(torch.randn(1).cuda(), requires_grad = True)
+        self.g5 = nn.Parameter(torch.randn(1).cuda(), requires_grad = True)
+        
+        self.attentions = [(self.attention1, self.g1),
+                           (self.attention2, self.g2),
+                           (self.attention3, self.g3),
+                           (self.attention4, self.g4),
+                           (self.attention5, self.g5)]
+        #self.attentions = [(Attention(seq_len = seq_len).cuda(), Variable(torch.randn(1).cuda(), requires_grad = True)) for _ in range(read_heads)]
         self.rnn = LSTM(input_size = 32, hidden_size = CONTROLLER_SIZE)
 
     def kl(self, g1, g2):
@@ -234,6 +250,7 @@ class Unified(nn.Module):
         return ans
     
     def forward(self, x_seq):
+        print([self.g1, self.g2, self.g3, self.g4, self.g5])
         loss = 0.0 # negative variational lower bound
         
         # BATCH_SIZE (= 10) x seq_len x 28 x 28
@@ -241,7 +258,7 @@ class Unified(nn.Module):
         
         controller_hidden = self.rnn.initHidden()
         controller_cell = self.rnn.initCell()
-        memory = [Variable(torch.zeros(BATCH_SIZE, 32), requires_grad = False) for _ in range(self.seq_len)]
+        memory = [Variable(torch.zeros(BATCH_SIZE, 32).cuda(), requires_grad = False) for _ in range(self.seq_len)]
 
         predicted_last_5 = []
         kls = []
@@ -254,7 +271,7 @@ class Unified(nn.Module):
                 mem_output.append(phi * F.sigmoid(g))
                 
             z_distr = self.posterior(x_seq[s], mem_output)
-            sampled_z = z_distr[0] + Variable(torch.randn(BATCH_SIZE, 32), requires_grad = False) * z_distr[1]
+            sampled_z = z_distr[0] + Variable(torch.randn(BATCH_SIZE, 32).cuda(), requires_grad = False) * z_distr[1]
 
             x_distr = self.likelihood(sampled_z, mem_output)
             if s >= self.seq_len - 5:

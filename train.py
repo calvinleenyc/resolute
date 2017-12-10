@@ -31,48 +31,39 @@ class Trainer:
             for j in range(5):
                 seq.append(seq[j])
             ans.append(seq)
-        ans = np.array(ans)
-        ans = ans / 256
+        ans = np.array(ans, dtype=np.float32)
+        ans = ans / 256.0
         ans = (ans - 0.5) * 2.0 # centered at 0, range [-1, 1]
-        ans = Variable(torch.FloatTensor(ans))
+        ans = Variable(torch.FloatTensor(ans).cuda())
         return ans
         
-
     def train(self):
         self.epoch += 1
         x_batch = self.make_batch()
         print(torch.sum(x_batch))
-
         self.optimizer.zero_grad()
         
         loss, predicted_last_5, kls = self.unified(x_batch)
-
         loss.backward()
         self.optimizer.step()
-
-
         if self.epoch % 100 == 1:
             predictions = torch.stack(predicted_last_5, dim = 1)
             predictions = torch.unbind(predictions, dim = 0)
-
             for b in range(BATCH_SIZE):
                 # send it to range (0,1)
-                seq = vutils.make_grid(predictions[b].data / 2.0 + 0.5)
-                self.writer.add_image('train_batch ' + str(b), seq, self.epoch)
+                seq = vutils.make_grid(predictions[b].data.cpu() / 2.0 + 0.5)
+                # self.writer.add_image('train_batch ' + str(b), seq, self.epoch)
         
         
         self.writer.add_scalar('loss', loss.data.cpu().numpy(), self.epoch)
         self.writer.add_scalar('log_loss', np.log(loss.data.cpu().numpy()), self.epoch)
         print([kl.data.cpu().numpy()[0] for kl in kls])
-
 def main():
-    unified = Unified(read_heads = 5, seq_len = 25)
+    unified = Unified(read_heads = 5, seq_len = 25).cuda()
     trainer = Trainer(unified)
-
     while True:
         print("HELLO!")
         trainer.train()
     
-
 if __name__ == '__main__':
     main()
