@@ -273,7 +273,7 @@ class Attention(nn.Module):
             beta = 10.0
             gap = torch.sum(ans, dim = 1) - 1
             groups = torch.unbind(self.dense2.weight, dim = 1)
-            loss = (alpha * sum([torch.sqrt(torch.sum(group * group)) for group in groups]) +
+            loss = (#alpha * sum([torch.sqrt(torch.sum(group * group)) for group in groups]) +
                     beta * torch.sum(gap * gap))
             
             return (ans, loss)
