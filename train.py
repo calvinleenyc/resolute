@@ -37,16 +37,18 @@ class Trainer:
         ans = Variable(torch.FloatTensor(ans).cuda())
         return ans
         
+
     def train(self):
         self.epoch += 1
         x_batch = self.make_batch()
-        print(torch.sum(x_batch))
+        #print(torch.sum(x_batch))
         self.optimizer.zero_grad()
         
-        loss, predicted_last_5, kls = self.unified(x_batch)
+        loss, old_pl5, predicted_last_5, kls = self.unified(x_batch)
         loss.backward()
         self.optimizer.step()
         if self.epoch % 30 == 1:
+            old_pr = torch.unbind(torch.stack(old_pl5, dim = 1), dim = 0)
             predictions = torch.stack(predicted_last_5, dim = 1)
             predictions = torch.unbind(predictions, dim = 0)
             curr_batch = torch.unbind(x_batch, dim = 0)
@@ -58,7 +60,10 @@ class Trainer:
             for b in range(BATCH_SIZE):
                 seq = vutils.make_grid(torch.unsqueeze(curr_batch[b].data.cpu(), dim = 1) / 2.0 + 0.5)
                 self.writer.add_image('x_batch ' + str(b), seq, self.epoch)
-        
+            for b in range(BATCH_SIZE):
+                seq = vutils.make_grid(torch.unsqueeze(old_pr[b].data.cpu(), dim = 1) / 2.0 + 0.5)
+                self.writer.add_image('old_pl5 ' + str(b), seq, self.epoch)
+                
         self.writer.add_scalar('loss', loss.data.cpu().numpy(), self.epoch)
         self.writer.add_scalar('log_loss', np.log(loss.data.cpu().numpy()), self.epoch)
         print([kl.data.cpu().numpy()[0] for kl in kls])
