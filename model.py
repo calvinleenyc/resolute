@@ -324,7 +324,7 @@ class Unified(nn.Module):
             # Turns out the posterior doesn't (for these sequences) actually require any knowledge about the memory.
             # Eliminating the dependency should speed up training.
             # Better would be to have a [use_memory] flag in Posterior.
-            z_distr = self.posterior(x_seq[s], [Variable(torch.zeros(*x.size())) for x in mem_output])
+            z_distr = self.posterior(x_seq[s], [Variable(torch.zeros(*x.size()).cuda()) for x in mem_output])
             sampled_z = z_distr[0] + Variable(torch.randn(BATCH_SIZE, 32).cuda(), requires_grad = False) * torch.exp(z_distr[1])
 
             x_distr = self.likelihood(sampled_z)
