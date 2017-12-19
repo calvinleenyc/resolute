@@ -4,8 +4,6 @@ import numpy as np
 import torch.nn.functional as F
 from torch.autograd import Variable
 
-lr_rate = 0.001
-
 CONTROLLER_SIZE = 128
 
 BATCH_SIZE = 10
