@@ -20,6 +20,13 @@ def num_params(model):
         ans += here
     return ans
 
+# KL Divergence between two gaussians; returns KL(gauss1 || gauss2)
+def kl_div(self, gauss1, gauss2):
+    # Each gaussian is a pair of vectors (mean, log sigma).
+    ans = -0.5 + gauss2[1] - gauss1[1] + \
+        (torch.exp(gauss1[1] * 2) + (gauss1[0] - gauss2[0]) * (gauss1[0] - gauss2[0])) * 0.5 * torch.exp(-2 * gauss2[1])
+    return ans
+
 class LSTM(nn.Module):
     def __init__(self, input_size, hidden_size):
         super(LSTM, self).__init__()
@@ -159,23 +166,8 @@ class TransposeCNN(nn.Module):
         
         return self.last_conv(F.relu(layer0))
 
-class OldPrior(nn.Module):
-    # Paper says nothing about how the memory is used in the architecture...
-    def __init__(self, read_heads):
-        super(OldPrior, self).__init__()
-        self.read_heads = read_heads
-        self.cnn = CNN(read_heads)
-        self.tcnn = TransposeCNN(1)
-        
-    def forward(self, memory_output):
-        restored_imgs = [torch.squeeze(self.tcnn(memory_output[r])) for r in range(self.read_heads)]
-        #print(restored_imgs[0].size())
-        ans = self.cnn(torch.stack(restored_imgs, dim = 1))
-        ans = torch.unbind(ans, dim = 1)
-        # MAYBE: add a skip connection later, for faster / better training?
-        return ans
-
 class Prior(nn.Module):
+    # Paper says nothing about how the memory is used in the architecture...
     def __init__(self, read_heads):
         super(Prior, self).__init__()
         self.read_heads = read_heads
@@ -188,67 +180,48 @@ class Prior(nn.Module):
         layer1 = F.relu(self.dense1(memory_output.view([-1, self.read_heads * 32])))
         layer2 = F.relu(self.dense2(layer1))
         ans =  self.dense3(layer2).view([-1, 2, 32])
-        #print(ans.size())
         return torch.unbind(ans, dim = 1)
         
 class Posterior(nn.Module):
-    # TODO: this is not tested
     def __init__(self, read_heads):
         super(Posterior, self).__init__()
         self.read_heads = read_heads
         self.cnn = CNN(1)
-        #self.tcnn = TransposeCNN(1)
         self.dense1 = nn.Linear((2 + read_heads) * 32, 128)
         self.dense2 = nn.Linear(128, 128)
         self.dense3 = nn.Linear(128, 64)
 
     def forward(self, x, memory_output):
-        #restored_imgs = [torch.squeeze(self.tcnn(memory_output[r])) for r in range(self.read_heads)]
         tx = torch.squeeze(self.cnn(torch.unsqueeze(x, dim = 1))).view([-1, 2, 32])
         memory_output = torch.stack(memory_output + list(torch.unbind(tx, dim = 1)), dim = 1)
         layer1 = F.relu(self.dense1(memory_output.view([-1, (self.read_heads + 2) * 32])))
         layer2 = F.relu(self.dense2(layer1))
         ans = self.dense3(layer2).view([-1, 2, 32])
-        #ans = self.cnn(torch.stack(restored_imgs, dim = 1))
-        return torch.unbind(ans, dim = 1) # separates means and variances
-    
-class OldLikelihood(nn.Module):
-    # Paper says very little about this, so we do as we see fit
-    def __init__(self, read_heads):
-        super(OldLikelihood, self).__init__()
-        self.read_heads = read_heads
-        self.mem_tcnn = TransposeCNN(2)
-        self.z_tcnn = TransposeCNN(2)
-        self.combo = nn.Parameter(torch.randn(6).cuda(), requires_grad = True)
-        
-    def forward(self, z, memory_output):
-        restored_imgs = [self.mem_tcnn(memory_output[r]) for r in range(self.read_heads)]
-        restored_z = self.z_tcnn(z)
-        ans = restored_z * self.combo[self.read_heads]
-        #print(self.combo)
-        for i in range(self.read_heads):
-            ans += self.combo[i] * restored_imgs[i]
-        ans = F.tanh(ans)
-        #print(ans)
-        return torch.unbind(ans, dim = 1) # separates means and variances
+        return torch.unbind(ans, dim = 1) # separates means and variances; returns (mean, log sigma)
 
 class Likelihood(nn.Module):
+    # Paper says very little about this, so we do as we see fit
     def __init__(self):
         super(Likelihood, self).__init__()
         self.z_tcnn = TransposeCNN(2)
     def forward(self, z):
         ans = self.z_tcnn(z)
         ans = F.tanh(ans)
-        return torch.unbind(ans, dim = 1)
+        return torch.unbind(ans, dim = 1) # separates means and variances; returns (mean, log sigma)
     
 class Attention(nn.Module):
-    # Not much discussion in paper about this architecture, either.
+    # No discussion in paper about this architecture, either.
     def __init__(self, seq_len):
         super(Attention, self).__init__()
         self.dense0 = nn.Linear(CONTROLLER_SIZE, 128)
         self.dense1 = nn.Linear(128, 128)
-        #self.dense2 = nn.Linear(128, seq_len)
-        self.type = 2
+        # EXPERIMENT CONTROL:
+        # 0 is to just replicate the original
+        # 1 is to use sparsity regularization
+        # 2 is to attempt to avoid sparsity
+        # To adjust the experiment type, we change the line below.
+        # (In real code, this could be controlled through a command-line argument to train.py.)
+        self.type = 0
         if self.type == 2:
             self.dense2 = nn.Linear(128, seq_len, bias = False)
         else:
@@ -257,6 +230,7 @@ class Attention(nn.Module):
         
     def forward(self, h):
         ans = self.dense2(F.relu(self.dense1(F.relu(self.dense0(h)))))
+        # See the comment above initialization of [self.type].
         if self.type == 0:
             # softplus, as specified in the paper
             ans = F.softplus(ans)
@@ -268,16 +242,14 @@ class Attention(nn.Module):
             ans = ans / torch.unsqueeze(torch.sum(ans, dim = 1), dim = 1)
             return (ans, alpha * torch.sum(torch.sqrt(ans + 1e-6)))
         if self.type == 2:
-            # we allow coefficients not to sum to 1, but heavily discourage it
-            alpha = 0.001
+            # here, we allow coefficients not to sum to 1, but heavily discourage it
             beta = 10.0
             gap = torch.sum(ans, dim = 1) - 1
-            groups = torch.unbind(self.dense2.weight, dim = 1)
-            loss = (#alpha * sum([torch.sqrt(torch.sum(group * group)) for group in groups]) +
-                    beta * torch.sum(gap * gap))
-            
+            loss = beta * torch.sum(gap * gap)
             return (ans, loss)
-class G(nn.Module):
+        
+class MemoryGate(nn.Module):
+    # This is the gating mechanism for the memory, the correction biases (see eqn. 12 in the paper).
     def __init__(self):
         super(G, self).__init__()
         self.dense0 = nn.Linear(CONTROLLER_SIZE, 128)
@@ -296,31 +268,30 @@ class Unified(nn.Module):
         self.prior = Prior(read_heads = read_heads)
         self.posterior = Posterior(read_heads = read_heads)
         self.likelihood = Likelihood()
+        # As specified in the paper, there are exactly 5 read heads.
+        # (Better would be to merge the Attention and MemoryGate modules, and have it take in [read_heads]
+        # as a parameter, and return mem_output.)
+        assert(self.read_heads == 5)
         self.attention1 = Attention(seq_len)
         self.attention2 = Attention(seq_len)
         self.attention3 = Attention(seq_len)
         self.attention4 = Attention(seq_len)
         self.attention5 = Attention(seq_len)
-        self.g1 = G()
-        self.g2 = G()
-        self.g3 = G()
-        self.g4 = G()
-        self.g5 = G()
+        self.gate1 = MemoryGate()
+        self.gate2 = MemoryGate()
+        self.gate3 = MemoryGate()
+        self.gate4 = MemoryGate()
+        self.gate5 = MemoryGate()
         
-        self.attentions = [(self.attention1, self.g1),
-                           (self.attention2, self.g2),
-                           (self.attention3, self.g3),
-                           (self.attention4, self.g4),
-                           (self.attention5, self.g5)]
-        #self.attentions = [(Attention(seq_len = seq_len).cuda(), Variable(torch.randn(1).cuda(), requires_grad = True)) for _ in range(read_heads)]
+        self.attentions = [(self.attention1, self.gate1),
+                           (self.attention2, self.gate2),
+                           (self.attention3, self.gate3),
+                           (self.attention4, self.gate4),
+                           (self.attention5, self.gate5)]
+        
         self.rnn = LSTM(input_size = 32, hidden_size = CONTROLLER_SIZE)
-
-    def kl(self, g1, g2):
-        ans = -0.5 + g2[1] - g1[1] + (torch.exp(g1[1] * 2) + (g1[0] - g2[0]) * (g1[0] - g2[0])) * 0.5 * torch.exp(-2 * g2[1])
-        return ans
     
     def forward(self, x_seq):
-        #print([self.g1, self.g2, self.g3, self.g4, self.g5])
         loss = 0.0 # negative variational lower bound
         
         # BATCH_SIZE (= 10) x seq_len x 28 x 28
@@ -329,7 +300,7 @@ class Unified(nn.Module):
         controller_hidden = self.rnn.initHidden()
         controller_cell = self.rnn.initCell()
         memory = [Variable(torch.zeros(BATCH_SIZE, 32).cuda(), requires_grad = False) for _ in range(self.seq_len)]
-        old_pl5 = []
+        reconstructed_imgs = []
         predicted_last_5 = []
         kls = []
         for s in range(self.seq_len):
@@ -339,92 +310,51 @@ class Unified(nn.Module):
                 att, g = self.attentions[r]
                 w, regularize_term = att(controller_hidden)
                 loss += regularize_term
+                
+                # Useful debug output to understand how well the training is going.  Eventually, the model learns
+                # enough that one of the w's will be a one-hot encoding representing the 3rd position.
+                # (Should be controlled by a [verbose] flag.)
                 if s == 23:
                     print(w[0])
                     print(g(controller_hidden)[0])
+                    
                 phi = torch.squeeze(torch.bmm(torch.unsqueeze(w, dim = 1), torch.stack(memory, dim = 1)))
-                #phi = memory[s - 20 if s >= 20 else 24]
                 mem_output.append(phi * F.sigmoid(g(controller_hidden)))
-                #loss += 1000000. * torch.abs(g)
                 
+            # Turns out the posterior didn't actually require any knowledge about the memory, and so eliminating this
+            # dependency should speed up training.
+            # Far better would be to just create an appropriately-sized call to torch.zeros(), or have a [use_memory]
+            # flag in Posterior.
             z_distr = self.posterior(x_seq[s], [0.0 * x for x in mem_output])
+            
             sampled_z = z_distr[0] + Variable(torch.randn(BATCH_SIZE, 32).cuda(), requires_grad = False) * torch.exp(z_distr[1])
 
             x_distr = self.likelihood(sampled_z)
 
-            old_pl5.append(x_distr[0])
+            reconstructed_imgs.append(x_distr[0])
             
+            # negative log gaussian
             loss += torch.sum(x_distr[1] + 0.5 * np.log(2 * np.pi) +
                               0.5 * (x_distr[0] - x_seq[s]) * (x_distr[0] - x_seq[s]) * torch.exp(x_distr[1] * -2))
             
-            z_prior = self.prior([x for x in mem_output])
-            #z_prior = (memory[s - 20 if s >= 20 else 24], z_prior[1])
+            z_prior = self.prior(mem_output)
             
-            
-            kl_here = torch.sum(self.kl(z_distr, z_prior))
+            kl_here = torch.sum(kl_div(z_distr, z_prior))
             kls.append(kl_here)
             loss += kl_here
             # update the memory
             memory[s] = sampled_z
             
             if s >= self.seq_len - 5:
-                # For purposes of viewing, we don't bother sampling from z, just use the mean.
+                # For purposes of viewing training progress, we don't bother sampling from z, just use the mean.
                 predicted_last_5.append(self.likelihood(z_prior[0])[0])
             
             # update the controller (Eqn. 9 in paper)
             controller_hidden, controller_cell = self.rnn(sampled_z, controller_hidden, controller_cell)
 
+        # The loss is a sum of two terms (when replicating original), and it's useful to watch which one
+        # is larger as training progresses.  (Should be moved to train.py and plotted instead of printed.)
         print(loss)
         print(sum(kls))
-        return loss, old_pl5, predicted_last_5, kls
+        return loss, reconstructed_imgs, predicted_last_5, kls
     
-
-# MISCELLANEOUS TESTING - IGNORE IT
-if __name__ == '__main__':
-    cnn = CNN(6)
-    print(num_params(cnn))
-
-    qe = Variable(torch.FloatTensor(np.random.randn(10, # batch size is 10
-                                                    6, 28, 28)))
-    c = cnn(qe)
-    #print(c[0])
-    #print(c[1])
-
-    tcnn = TransposeCNN(2)
-        
-    print(num_params(tcnn))
-    qe = Variable(torch.FloatTensor(np.random.randn(10,
-                                                    32)))
-    c = tcnn(qe)
-    #print(c)
-    p = Prior(read_heads = 5)
-    print(num_params(p))
-    qe = Variable(torch.FloatTensor(np.random.randn(10,
-                                                    32)))
-    c = p([qe, qe, qe, qe, qe])
-    #print(c[0])
-    l = Likelihood(read_heads = 5)
-    print(num_params(l))
-    qe = qe.cuda()
-    c = l(qe, [qe, qe, qe, qe, qe])
-    #print(c)
-    a = Attention(seq_len = 10)
-    f = Variable(torch.randn(2, 64))
-    #print(a(f))
-    b = Attention(seq_len = 10)
-    #print(b(f))
-    
-    u = Unified(read_heads = 5, seq_len = 25)
-    print(num_params(u))
-    x_seq = Variable(torch.randn(10, 25, 28, 28))
-    print(u(x_seq))
-    exit(0)
-    d = Variable(torch.randn(1), requires_grad = True)
-    r = Variable(torch.randn(2), requires_grad = False)
-    print(d)
-    print(r)
-    r[0] = d
-    print(r)
-    e = F.mse_loss(r[0], Variable(torch.zeros(1)))
-    e.backward()
-    print(d.grad.data)
