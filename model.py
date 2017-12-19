@@ -21,7 +21,7 @@ def num_params(model):
     return ans
 
 # KL Divergence between two gaussians; returns KL(gauss1 || gauss2)
-def kl_div(self, gauss1, gauss2):
+def kl_div(gauss1, gauss2):
     # Each gaussian is a pair of vectors (mean, log sigma).
     ans = -0.5 + gauss2[1] - gauss1[1] + \
         (torch.exp(gauss1[1] * 2) + (gauss1[0] - gauss2[0]) * (gauss1[0] - gauss2[0])) * 0.5 * torch.exp(-2 * gauss2[1])
