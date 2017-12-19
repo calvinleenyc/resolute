@@ -41,27 +41,24 @@ class Trainer:
     def train(self):
         self.epoch += 1
         x_batch = self.make_batch()
-        #print(torch.sum(x_batch))
         self.optimizer.zero_grad()
         
-        loss, old_pl5, predicted_last_5, kls = self.unified(x_batch)
+        loss, reconstructed_imgs, predicted_last_5, kls = self.unified(x_batch)
         loss.backward()
         self.optimizer.step()
         if self.epoch % 30 == 1:
-            old_pr = torch.unbind(torch.stack(old_pl5, dim = 1), dim = 0)
-            predictions = torch.stack(predicted_last_5, dim = 1)
-            predictions = torch.unbind(predictions, dim = 0)
+            reconstr = torch.unbind(torch.stack(reconstructed_imgs, dim = 1), dim = 0)
+            predictions = torch.unbind(torch.stack(predicted_last_5, dim = 1), dim = 0)
             curr_batch = torch.unbind(x_batch, dim = 0)
             for b in range(BATCH_SIZE):
                 # send it to range (0,1)
-                #print(predictions[b].data.cpu().size())
                 seq = vutils.make_grid(torch.unsqueeze(predictions[b].data.cpu(), dim = 1) / 2.0 + 0.5)
                 self.writer.add_image('train_batch ' + str(b), seq, self.epoch)
             for b in range(BATCH_SIZE):
                 seq = vutils.make_grid(torch.unsqueeze(curr_batch[b].data.cpu(), dim = 1) / 2.0 + 0.5)
                 self.writer.add_image('x_batch ' + str(b), seq, self.epoch)
             for b in range(BATCH_SIZE):
-                seq = vutils.make_grid(torch.unsqueeze(old_pr[b].data.cpu(), dim = 1) / 2.0 + 0.5)
+                seq = vutils.make_grid(torch.unsqueeze(reconstr[b].data.cpu(), dim = 1) / 2.0 + 0.5)
                 self.writer.add_image('old_pl5 ' + str(b), seq, self.epoch)
                 
         self.writer.add_scalar('loss', loss.data.cpu().numpy(), self.epoch)
@@ -71,7 +68,6 @@ def main():
     unified = Unified(read_heads = 5, seq_len = 25).cuda()
     trainer = Trainer(unified)
     while True:
-        print("HELLO!")
         trainer.train()
     
 if __name__ == '__main__':
