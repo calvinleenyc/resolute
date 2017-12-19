@@ -251,7 +251,7 @@ class Attention(nn.Module):
 class MemoryGate(nn.Module):
     # This is the gating mechanism for the memory, the correction biases (see eqn. 12 in the paper).
     def __init__(self):
-        super(G, self).__init__()
+        super(MemoryGate, self).__init__()
         self.dense0 = nn.Linear(CONTROLLER_SIZE, 128)
         self.dense1 = nn.Linear(128, 128)
         self.dense2 = nn.Linear(128, 1)
