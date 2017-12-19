@@ -309,7 +309,7 @@ class Unified(nn.Module):
                 
                 # Useful debug output to understand how well the training is going.  Eventually, the model learns
                 # enough that one of the w's will be a one-hot encoding representing the 3rd position.
-                # (Should be controlled by a [verbose] flag.)
+                # (Should be moved to train.py controlled by a [verbose] flag.)
                 if s == 23:
                     print(w[0])
                     print(g(controller_hidden)[0])
