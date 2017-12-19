@@ -321,12 +321,10 @@ class Unified(nn.Module):
                 phi = torch.squeeze(torch.bmm(torch.unsqueeze(w, dim = 1), torch.stack(memory, dim = 1)))
                 mem_output.append(phi * F.sigmoid(g(controller_hidden)))
                 
-            # Turns out the posterior didn't actually require any knowledge about the memory, and so eliminating this
-            # dependency should speed up training.
-            # Far better would be to just create an appropriately-sized call to torch.zeros(), or have a [use_memory]
-            # flag in Posterior.
-            z_distr = self.posterior(x_seq[s], [0.0 * x for x in mem_output])
-            
+            # Turns out the posterior doesn't (for these sequences) actually require any knowledge about the memory.
+            # Eliminating the dependency should speed up training.
+            # Better would be to have a [use_memory] flag in Posterior.
+            z_distr = self.posterior(x_seq[s], [Variable(torch.zeros(*x.size())) for x in mem_output])
             sampled_z = z_distr[0] + Variable(torch.randn(BATCH_SIZE, 32).cuda(), requires_grad = False) * torch.exp(z_distr[1])
 
             x_distr = self.likelihood(sampled_z)
