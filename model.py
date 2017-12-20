@@ -306,13 +306,6 @@ class Unified(nn.Module):
                 att, g = self.attentions[r]
                 w, regularize_term = att(controller_hidden)
                 loss += regularize_term
-                
-                # Useful debug output to understand how well the training is going.  Eventually, the model learns
-                # enough that one of the w's will be a one-hot encoding representing the 3rd position.
-                # (Should be moved to train.py controlled by a [verbose] flag.)
-                if s == 23:
-                    print(w[0])
-                    print(g(controller_hidden)[0])
                     
                 phi = torch.squeeze(torch.bmm(torch.unsqueeze(w, dim = 1), torch.stack(memory, dim = 1)))
                 mem_output.append(phi * F.sigmoid(g(controller_hidden)))
@@ -346,9 +339,5 @@ class Unified(nn.Module):
             # update the controller (Eqn. 9 in paper)
             controller_hidden, controller_cell = self.rnn(sampled_z, controller_hidden, controller_cell)
 
-        # The loss is a sum of two terms (when replicating original), and it's useful to watch which one
-        # is larger as training progresses.  (Should be moved to train.py and plotted instead of printed.)
-        print(loss)
-        print(sum(kls))
         return loss, reconstructed_imgs, predicted_last_5, kls
     
