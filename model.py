@@ -241,15 +241,16 @@ class Attention(nn.Module):
         loss = 0.0
         if self.type == 0:
             # softplus, as specified in the paper
-            ans = F.softplus(ans)
+            ans = F.softplus(layer0)
             ans = ans / torch.unsqueeze(torch.sum(ans, dim = 1), dim = 1)
         if self.type == 1:
             alpha = 0.001 # This works the best, it seems (based on a few experiments).
-            ans = F.softplus(ans)
+            ans = F.softplus(layer0)
             ans = ans / torch.unsqueeze(torch.sum(ans, dim = 1), dim = 1)
             loss = alpha * torch.sum(torch.sqrt(ans + 1e-6))
         if self.type == 2:
             # here, we allow coefficients not to sum to 1, but heavily discourage it
+            ans = layer0
             beta = 10.0
             gap = torch.sum(ans, dim = 1) - 1
             loss = beta * torch.sum(gap * gap)
