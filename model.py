@@ -4,8 +4,6 @@ import numpy as np
 import torch.nn.functional as F
 from torch.autograd import Variable
 
-lr_rate = 0.001
-
 CONTROLLER_SIZE = 128
 
 BATCH_SIZE = 10
@@ -21,7 +19,7 @@ def num_params(model):
     return ans
 
 # KL Divergence between two gaussians; returns KL(gauss1 || gauss2)
-def kl_div(self, gauss1, gauss2):
+def kl_div(gauss1, gauss2):
     # Each gaussian is a pair of vectors (mean, log sigma).
     ans = -0.5 + gauss2[1] - gauss1[1] + \
         (torch.exp(gauss1[1] * 2) + (gauss1[0] - gauss2[0]) * (gauss1[0] - gauss2[0])) * 0.5 * torch.exp(-2 * gauss2[1])
@@ -53,8 +51,7 @@ class LSTM(nn.Module):
         return Variable(torch.zeros(BATCH_SIZE, self.hidden_size).cuda(), requires_grad = False)
 
 class CNN(nn.Module):
-    # as described in Appendix B, except that Appendix B doesn't specify anything about
-    # how the results of the memory query are incorporated into the architecture.
+    # as described in Appendix B
     def __init__(self, in_channels):
         super(CNN, self).__init__()
         self.in_channels = in_channels
@@ -65,8 +62,7 @@ class CNN(nn.Module):
         self.conv1c = nn.Conv2d(input_channels, 8, 5, padding = 2)
         self.conv1d = nn.Conv2d(input_channels, 8, 7, padding = 3)
 
-        # CAREFUL HERE
-        # the text specifies that the batchnorm happens before the concatenation...
+        # the text specifies that the batchnorm happens before the concatenation
         self.batchnorm1A = nn.BatchNorm2d(8)
         self.batchnorm1B = nn.BatchNorm2d(8)
         self.batchnorm1C = nn.BatchNorm2d(8)
@@ -167,7 +163,7 @@ class TransposeCNN(nn.Module):
         return self.last_conv(F.relu(layer0))
 
 class Prior(nn.Module):
-    # Paper says nothing about how the memory is used in the architecture...
+    # Paper says nothing about how the memory is used in the architecture.
     def __init__(self, read_heads):
         super(Prior, self).__init__()
         self.read_heads = read_heads
@@ -200,7 +196,7 @@ class Posterior(nn.Module):
         return torch.unbind(ans, dim = 1) # separates means and variances; returns (mean, log sigma)
 
 class Likelihood(nn.Module):
-    # Paper says very little about this, so we do as we see fit
+    # Paper says very little about this, so we do as we see fit.
     def __init__(self):
         super(Likelihood, self).__init__()
         self.z_tcnn = TransposeCNN(2)
@@ -249,7 +245,7 @@ class Attention(nn.Module):
             return (ans, loss)
         
 class MemoryGate(nn.Module):
-    # This is the gating mechanism for the memory, the correction biases (see eqn. 12 in the paper).
+    # This is the gating mechanism for the memory, the correction biases (see Eqn. 12 in the paper).
     def __init__(self):
         super(MemoryGate, self).__init__()
         self.dense0 = nn.Linear(CONTROLLER_SIZE, 128)
@@ -292,7 +288,7 @@ class Unified(nn.Module):
         self.rnn = LSTM(input_size = 32, hidden_size = CONTROLLER_SIZE)
     
     def forward(self, x_seq):
-        loss = 0.0 # negative variational lower bound
+        loss = 0.0 # negative variational lower bound, plus (maybe) some regularization
         
         # BATCH_SIZE (= 10) x seq_len x 28 x 28
         x_seq = torch.unbind(x_seq, dim = 1) # remember, this is a BATCH
@@ -313,7 +309,7 @@ class Unified(nn.Module):
                 
                 # Useful debug output to understand how well the training is going.  Eventually, the model learns
                 # enough that one of the w's will be a one-hot encoding representing the 3rd position.
-                # (Should be controlled by a [verbose] flag.)
+                # (Should be moved to train.py controlled by a [verbose] flag.)
                 if s == 23:
                     print(w[0])
                     print(g(controller_hidden)[0])
@@ -321,12 +317,10 @@ class Unified(nn.Module):
                 phi = torch.squeeze(torch.bmm(torch.unsqueeze(w, dim = 1), torch.stack(memory, dim = 1)))
                 mem_output.append(phi * F.sigmoid(g(controller_hidden)))
                 
-            # Turns out the posterior didn't actually require any knowledge about the memory, and so eliminating this
-            # dependency should speed up training.
-            # Far better would be to just create an appropriately-sized call to torch.zeros(), or have a [use_memory]
-            # flag in Posterior.
-            z_distr = self.posterior(x_seq[s], [0.0 * x for x in mem_output])
-            
+            # Turns out the posterior doesn't (for these sequences) actually require any knowledge about the memory.
+            # Eliminating the dependency should speed up training.
+            # Better would be to have a [use_memory] flag in Posterior.
+            z_distr = self.posterior(x_seq[s], [Variable(torch.zeros(*x.size()).cuda()) for x in mem_output])
             sampled_z = z_distr[0] + Variable(torch.randn(BATCH_SIZE, 32).cuda(), requires_grad = False) * torch.exp(z_distr[1])
 
             x_distr = self.likelihood(sampled_z)
