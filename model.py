@@ -179,18 +179,26 @@ class Prior(nn.Module):
         return torch.unbind(ans, dim = 1)
         
 class Posterior(nn.Module):
-    def __init__(self, read_heads):
+    def __init__(self, read_heads, use_memory = False):
         super(Posterior, self).__init__()
-        self.read_heads = read_heads
+        self.use_memory = use_memory
+        # Turns out the posterior doesn't (for these sequences) actually require any knowledge about the memory.
+        # Eliminating the dependency should speed up training.
+        self.read_heads = read_heads if use_memory else 0
         self.cnn = CNN(1)
-        self.dense1 = nn.Linear((2 + read_heads) * 32, 128)
+        self.dense1 = nn.Linear((2 + self.read_heads) * 32, 128)
         self.dense2 = nn.Linear(128, 128)
         self.dense3 = nn.Linear(128, 64)
 
-    def forward(self, x, memory_output):
-        tx = torch.squeeze(self.cnn(torch.unsqueeze(x, dim = 1))).view([-1, 2, 32])
-        memory_output = torch.stack(memory_output + list(torch.unbind(tx, dim = 1)), dim = 1)
-        layer1 = F.relu(self.dense1(memory_output.view([-1, (self.read_heads + 2) * 32])))
+    def forward(self, x, memory_output = None):
+        z = torch.squeeze(self.cnn(torch.unsqueeze(x, dim = 1))).view([-1, 2, 32])
+        if self.use_memory:
+            if memory_output is None:
+                print("This Posterior predictor was initialized with use_memory = True; pass in the memory output.")
+            memory_output_and_z = torch.stack(memory_output + list(torch.unbind(z, dim = 1)), dim = 1)
+        else:
+            memory_output_and_z = z
+        layer1 = F.relu(self.dense1(memory_output_and_z.view([-1, (self.read_heads + 2) * 32])))
         layer2 = F.relu(self.dense2(layer1))
         ans = self.dense3(layer2).view([-1, 2, 32])
         return torch.unbind(ans, dim = 1) # separates means and variances; returns (mean, log sigma)
@@ -262,7 +270,7 @@ class Unified(nn.Module):
         self.seq_len = seq_len
         
         self.prior = Prior(read_heads = read_heads)
-        self.posterior = Posterior(read_heads = read_heads)
+        self.posterior = Posterior(read_heads = read_heads, use_memory = False)
         self.likelihood = Likelihood()
         # As specified in the paper, there are exactly 5 read heads.
         # (Better would be to merge the Attention and MemoryGate modules, and have it take in [read_heads]
@@ -310,10 +318,8 @@ class Unified(nn.Module):
                 phi = torch.squeeze(torch.bmm(torch.unsqueeze(w, dim = 1), torch.stack(memory, dim = 1)))
                 mem_output.append(phi * F.sigmoid(g(controller_hidden)))
                 
-            # Turns out the posterior doesn't (for these sequences) actually require any knowledge about the memory.
-            # Eliminating the dependency should speed up training.
-            # Better would be to have a [use_memory] flag in Posterior.
-            z_distr = self.posterior(x_seq[s], [Variable(torch.zeros(*x.size()).cuda()) for x in mem_output])
+            
+            z_distr = self.posterior(x_seq[s])
             sampled_z = z_distr[0] + Variable(torch.randn(BATCH_SIZE, 32).cuda(), requires_grad = False) * torch.exp(z_distr[1])
 
             x_distr = self.likelihood(sampled_z)
