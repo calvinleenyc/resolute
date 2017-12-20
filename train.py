@@ -8,12 +8,14 @@ import torchvision.utils as vutils
 from model import Unified, BATCH_SIZE
 
 import mnist
+import argparse
 
 lr_rate = 0.001
 
 class Trainer:
-    def __init__(self, unified):
+    def __init__(self, unified, use_cuda):
         self.unified = unified
+	self.use_cuda = use_cuda
         
         self.optimizer = torch.optim.Adam(unified.parameters(), lr = lr_rate)
         self.writer = SummaryWriter()
@@ -34,8 +36,11 @@ class Trainer:
         ans = np.array(ans, dtype=np.float32)
         ans = ans / 256.0
         ans = (ans - 0.5) * 2.0 # centered at 0, range [-1, 1]
-        ans = Variable(torch.FloatTensor(ans).cuda())
-        return ans
+	if self.use_cuda:
+            ans = Variable(torch.FloatTensor(ans).cuda())
+        else:
+	    ans = Variable(torch.FloatTensor(ans))
+	return ans
         
 
     def train(self):
@@ -65,8 +70,18 @@ class Trainer:
         self.writer.add_scalar('log_loss', np.log(loss.data.cpu().numpy()), self.epoch)
         print([kl.data.cpu().numpy()[0] for kl in kls])
 def main():
-    unified = Unified(read_heads = 5, seq_len = 25, experiment_type = 0).cuda()
-    trainer = Trainer(unified)
+    parser = argparse.ArgumentParser(description = 'Generative Temporal Autoencoder')
+    args.add_argument('--disable-cuda', action='store_true', help = 'Disable CUDA')
+    args.add_argument('--experiment-type', help = 'Experiment type: 0 for replication, 1\
+	for sparsity regularization , 2 for non-sparsity')
+    args = parser.parse_args()
+    args.cuda = not args.disable_cuda and torch.cuda.is_available()
+    experiment_type = int(args.experiment_type)
+    if args.cuda:
+        unified = Unified(read_heads = 5, seq_len = 25, experiment_type = experiment_type, use_cuda = True).cuda()
+    else:
+	unified = Unified(read_heads = 5, seq_len = 25, experiment_type = experiment_type, use_cuda = False)
+    trainer = Trainer(unified, args.cuda)
     while True:
         trainer.train()
     
