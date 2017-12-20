@@ -307,7 +307,7 @@ class Unified(nn.Module):
 	    
 	    mem_output = torch.unbind(phi * torch.unsqueeze(gate_weights, dim = 2), dim = 1)
             
-            z_distr = self.posterior(x_seq[s])
+	    z_distr = self.posterior(x_seq[s])
             sampled_z = z_distr[0] + Variable(torch.randn(BATCH_SIZE, 32).cuda(), requires_grad = False) * torch.exp(z_distr[1])
 
             x_distr = self.likelihood(sampled_z)
