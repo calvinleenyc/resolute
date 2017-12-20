@@ -215,56 +215,61 @@ class Likelihood(nn.Module):
     
 class Attention(nn.Module):
     # No discussion in paper about this architecture, either.
-    def __init__(self, seq_len):
+    def __init__(self, read_heads, seq_len, experiment_type):
         super(Attention, self).__init__()
+        self.read_heads = read_heads
+        self.seq_len = seq_len
         self.dense0 = nn.Linear(CONTROLLER_SIZE, 128)
         self.dense1 = nn.Linear(128, 128)
         # EXPERIMENT CONTROL:
-        # 0 is to just replicate the original
+        # 0 is to just replicate the original paper
         # 1 is to use sparsity regularization
         # 2 is to attempt to avoid sparsity
         # To adjust the experiment type, we change the line below.
-        # (In real code, this could be controlled through a command-line argument to train.py.)
-        self.type = 0
+        self.type = experiment_type
         if self.type == 2:
-            self.dense2 = nn.Linear(128, seq_len, bias = False)
+            self.dense2 = nn.Linear(128, seq_len * read_heads, bias = False)
         else:
-            self.dense2 = nn.Linear(128, seq_len)
-
+            self.dense2 = nn.Linear(128, seq_len * read_heads)
         
     def forward(self, h):
-        ans = self.dense2(F.relu(self.dense1(F.relu(self.dense0(h)))))
+        # returns a pair (attention_weights, regularization loss)
+        # [attention_weights] is a list of length [self.read_heads].
+        layer0 = self.dense2(F.relu(self.dense1(F.relu(self.dense0(h)))))
+        layer0 = layer0.view([-1, self.seq_len, self.read_heads])
         # See the comment above initialization of [self.type].
+        loss = 0.0
         if self.type == 0:
             # softplus, as specified in the paper
             ans = F.softplus(ans)
-            return (ans / torch.unsqueeze(torch.sum(ans, dim = 1), dim = 1), 0.0)
-        if self.type == 1:
-            alpha = 0.001
-            ans = F.softplus(ans)
-            
             ans = ans / torch.unsqueeze(torch.sum(ans, dim = 1), dim = 1)
-            return (ans, alpha * torch.sum(torch.sqrt(ans + 1e-6)))
+        if self.type == 1:
+            alpha = 0.001 # This works the best, it seems (based on a few experiments).
+            ans = F.softplus(ans)
+            ans = ans / torch.unsqueeze(torch.sum(ans, dim = 1), dim = 1)
+            loss = alpha * torch.sum(torch.sqrt(ans + 1e-6))
         if self.type == 2:
             # here, we allow coefficients not to sum to 1, but heavily discourage it
             beta = 10.0
             gap = torch.sum(ans, dim = 1) - 1
             loss = beta * torch.sum(gap * gap)
-            return (ans, loss)
+            
+        return (torch.unbind(ans, dim = 2), loss)
         
 class MemoryGate(nn.Module):
-    # This is the gating mechanism for the memory, the correction biases (see Eqn. 12 in the paper).
-    def __init__(self):
+    def __init__(self, read_heads):
         super(MemoryGate, self).__init__()
+        # These are the gating mechanism for the memory, the correction biases (see Eqn. 12 in the paper).
         self.dense0 = nn.Linear(CONTROLLER_SIZE, 128)
         self.dense1 = nn.Linear(128, 128)
-        self.dense2 = nn.Linear(128, 1)
+        self.dense2 = nn.Linear(128, read_heads)
+        
     def forward(self, h):
         ans = self.dense2(F.relu(self.dense1(F.relu(self.dense0(h)))))
-        return ans
+        return torch.unbind(ans, dim = 1)
     
 class Unified(nn.Module):
-    def __init__(self, read_heads, seq_len):
+    def __init__(self, read_heads, seq_len, experiment_type):
         super(Unified, self).__init__()
         self.read_heads = read_heads
         self.seq_len = seq_len
@@ -272,26 +277,8 @@ class Unified(nn.Module):
         self.prior = Prior(read_heads = read_heads)
         self.posterior = Posterior(read_heads = read_heads, use_memory = False)
         self.likelihood = Likelihood()
-        # As specified in the paper, there are exactly 5 read heads.
-        # (Better would be to merge the Attention and MemoryGate modules, and have it take in [read_heads]
-        # as a parameter, and return mem_output.)
-        assert(self.read_heads == 5)
-        self.attention1 = Attention(seq_len)
-        self.attention2 = Attention(seq_len)
-        self.attention3 = Attention(seq_len)
-        self.attention4 = Attention(seq_len)
-        self.attention5 = Attention(seq_len)
-        self.gate1 = MemoryGate()
-        self.gate2 = MemoryGate()
-        self.gate3 = MemoryGate()
-        self.gate4 = MemoryGate()
-        self.gate5 = MemoryGate()
-        
-        self.attentions = [(self.attention1, self.gate1),
-                           (self.attention2, self.gate2),
-                           (self.attention3, self.gate3),
-                           (self.attention4, self.gate4),
-                           (self.attention5, self.gate5)]
+        self.attention = Attention(seq_len, read_heads, experiment_type)
+        self.memory_gate = MemoryGate(read_heads)
         
         self.rnn = LSTM(input_size = 32, hidden_size = CONTROLLER_SIZE)
     
@@ -310,13 +297,16 @@ class Unified(nn.Module):
         for s in range(self.seq_len):
             # query the memory (Eqn. 10 in paper)
             mem_output = []
+            attention_weights, regularize_term = self.attention(controller_hidden)
+            gate_weights = self.memory_gate(controller_hidden)
+            loss += regularize_term
+            
             for r in range(self.read_heads):
-                att, g = self.attentions[r]
-                w, regularize_term = att(controller_hidden)
-                loss += regularize_term
+                w = attention_weights[r]
+                g = gate_weights[r]
                     
                 phi = torch.squeeze(torch.bmm(torch.unsqueeze(w, dim = 1), torch.stack(memory, dim = 1)))
-                mem_output.append(phi * F.sigmoid(g(controller_hidden)))
+                mem_output.append(phi * F.sigmoid(g))
                 
             
             z_distr = self.posterior(x_seq[s])
