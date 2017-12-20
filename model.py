@@ -234,7 +234,7 @@ class Attention(nn.Module):
         
     def forward(self, h):
         # returns a pair (attention_weights, regularization loss)
-        # [attention_weights] is a list of length [self.read_heads].
+        # [attention_weights] is a batch_size x seq_len x read_heads tensor.
         layer0 = self.dense2(F.relu(self.dense1(F.relu(self.dense0(h)))))
         layer0 = layer0.view([-1, self.seq_len, self.read_heads])
         # See the comment above initialization of [self.type].
@@ -255,7 +255,7 @@ class Attention(nn.Module):
             gap = torch.sum(ans, dim = 1) - 1
             loss = beta * torch.sum(gap * gap)
             
-        return (torch.unbind(ans, dim = 2), loss)
+        return (ans, loss)
         
 class MemoryGate(nn.Module):
     def __init__(self, read_heads):
@@ -266,8 +266,9 @@ class MemoryGate(nn.Module):
         self.dense2 = nn.Linear(128, read_heads)
         
     def forward(self, h):
+	# returns a batch_size x read_heads tensor
         ans = self.dense2(F.relu(self.dense1(F.relu(self.dense0(h)))))
-        return torch.unbind(ans, dim = 1)
+        return ans
     
 class Unified(nn.Module):
     def __init__(self, read_heads, seq_len, experiment_type):
@@ -302,11 +303,10 @@ class Unified(nn.Module):
             gate_weights = self.memory_gate(controller_hidden)
             loss += regularize_term
             
-            for r in range(self.read_heads):
-                w = attention_weights[r]
-                g = gate_weights[r]
-                phi = torch.squeeze(torch.bmm(torch.unsqueeze(w, dim = 1), torch.stack(memory, dim = 1)))
-                mem_output.append(phi * F.sigmoid(torch.unsqueeze(g, dim = 1)))
+	    phi = torch.bmm(torch.transpose(attention_weights, 1, 2), torch.stack(memory, dim = 1))
+	    
+	    mem_output = torch.unbind(phi * torch.unsqueeze(gate_weights, dim = 2))
+
                 
             
             z_distr = self.posterior(x_seq[s])
