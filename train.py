@@ -59,7 +59,7 @@ class Trainer:
                 self.writer.add_image('x_batch ' + str(b), seq, self.epoch)
             for b in range(BATCH_SIZE):
                 seq = vutils.make_grid(torch.unsqueeze(reconstr[b].data.cpu(), dim = 1) / 2.0 + 0.5)
-                self.writer.add_image('old_pl5 ' + str(b), seq, self.epoch)
+                self.writer.add_image('reconstr ' + str(b), seq, self.epoch)
                 
         self.writer.add_scalar('loss', loss.data.cpu().numpy(), self.epoch)
         self.writer.add_scalar('log_loss', np.log(loss.data.cpu().numpy()), self.epoch)
