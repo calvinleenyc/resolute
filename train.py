@@ -65,7 +65,7 @@ class Trainer:
         self.writer.add_scalar('log_loss', np.log(loss.data.cpu().numpy()), self.epoch)
         print([kl.data.cpu().numpy()[0] for kl in kls])
 def main():
-    unified = Unified(read_heads = 5, seq_len = 25).cuda()
+    unified = Unified(read_heads = 5, seq_len = 25, experiment_type = 0).cuda()
     trainer = Trainer(unified)
     while True:
         trainer.train()
