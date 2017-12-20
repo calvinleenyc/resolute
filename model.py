@@ -278,7 +278,7 @@ class Unified(nn.Module):
         self.prior = Prior(read_heads = read_heads)
         self.posterior = Posterior(read_heads = read_heads, use_memory = False)
         self.likelihood = Likelihood()
-        self.attention = Attention(seq_len, read_heads, experiment_type)
+        self.attention = Attention(read_heads = read_heads, seq_len = seq_len, experiment_type = experiment_type)
         self.memory_gate = MemoryGate(read_heads)
         
         self.rnn = LSTM(input_size = 32, hidden_size = CONTROLLER_SIZE)
@@ -305,9 +305,8 @@ class Unified(nn.Module):
             for r in range(self.read_heads):
                 w = attention_weights[r]
                 g = gate_weights[r]
-                    
                 phi = torch.squeeze(torch.bmm(torch.unsqueeze(w, dim = 1), torch.stack(memory, dim = 1)))
-                mem_output.append(phi * F.sigmoid(g))
+                mem_output.append(phi * F.sigmoid(torch.unsqueeze(g, dim = 1)))
                 
             
             z_distr = self.posterior(x_seq[s])
