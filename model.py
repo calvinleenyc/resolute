@@ -44,12 +44,18 @@ class LSTM(nn.Module):
         H = O * F.tanh(C)
         return H, C
 
-    def initHidden(self):
-        return Variable(torch.zeros(BATCH_SIZE, self.hidden_size).cuda())
+    def initHidden(self, use_cuda):
+	if use_cuda:
+            return Variable(torch.zeros(BATCH_SIZE, self.hidden_size).cuda())
+	else:
+            return Variable(torch.zeros(BATCH_SIZE, self.hidden_size))
 
-    def initCell(self):
-        return Variable(torch.zeros(BATCH_SIZE, self.hidden_size).cuda())
-
+    def initCell(self, use_cuda):
+	if use_cuda:
+            return Variable(torch.zeros(BATCH_SIZE, self.hidden_size).cuda())
+	else:
+            return Variable(torch.zeros(BATCH_SIZE, self.hidden_size))
+	    
 class CNN(nn.Module):
     # as described in Appendix B
     def __init__(self, in_channels):
@@ -284,16 +290,20 @@ class Unified(nn.Module):
         
         self.rnn = LSTM(input_size = 32, hidden_size = CONTROLLER_SIZE)
     
-    def forward(self, x_seq):
+    def forward(self, x_seq, use_cuda):
         loss = 0.0 # negative variational lower bound, plus (maybe) some regularization
         
         # BATCH_SIZE (= 10) x seq_len x 28 x 28
         x_seq = torch.unbind(x_seq, dim = 1) # remember, this is a BATCH
         
-        controller_hidden = self.rnn.initHidden()
-        controller_cell = self.rnn.initCell()
-        memory = [Variable(torch.zeros(BATCH_SIZE, 32).cuda(), requires_grad = False) for _ in range(self.seq_len)]
-        reconstructed_imgs = []
+        controller_hidden = self.rnn.initHidden(use_cuda)
+        controller_cell = self.rnn.initCell(use_cuda)
+	if use_cuda:
+            memory = [Variable(torch.zeros(BATCH_SIZE, 32))) for _ in range(self.seq_len)]
+        else:
+            memory = [Variable(torch.zeros(BATCH_SIZE, 32)).cuda()) for _ in range(self.seq_len)]
+	     
+	reconstructed_imgs = []
         predicted_last_5 = []
         kls = []
         for s in range(self.seq_len):
@@ -308,7 +318,7 @@ class Unified(nn.Module):
 	    mem_output = torch.unbind(phi * torch.unsqueeze(gate_weights, dim = 2), dim = 1)
             
 	    z_distr = self.posterior(x_seq[s])
-            sampled_z = z_distr[0] + Variable(torch.randn(BATCH_SIZE, 32).cuda(), requires_grad = False) * torch.exp(z_distr[1])
+            sampled_z = z_distr[0] + Variable(torch.randn(BATCH_SIZE, 32, out = z_distr.data.new()), requires_grad = False) * torch.exp(z_distr[1])
 
             x_distr = self.likelihood(sampled_z)
 
