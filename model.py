@@ -45,10 +45,10 @@ class LSTM(nn.Module):
         return H, C
 
     def initHidden(self):
-        return Variable(torch.zeros(BATCH_SIZE, self.hidden_size).cuda(), requires_grad = False)
+        return Variable(torch.zeros(BATCH_SIZE, self.hidden_size).cuda())
 
     def initCell(self):
-        return Variable(torch.zeros(BATCH_SIZE, self.hidden_size).cuda(), requires_grad = False)
+        return Variable(torch.zeros(BATCH_SIZE, self.hidden_size).cuda())
 
 class CNN(nn.Module):
     # as described in Appendix B
