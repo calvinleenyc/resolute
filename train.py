@@ -71,8 +71,8 @@ class Trainer:
         print([kl.data.cpu().numpy()[0] for kl in kls])
 def main():
     parser = argparse.ArgumentParser(description = 'Generative Temporal Autoencoder')
-    args.add_argument('--disable-cuda', action='store_true', help = 'Disable CUDA')
-    args.add_argument('--experiment-type', help = 'Experiment type: 0 for replication, 1\
+    parser.add_argument('--disable-cuda', action='store_true', help = 'Disable CUDA')
+    parser.add_argument('--experiment-type', help = 'Experiment type: 0 for replication, 1\
 	for sparsity regularization , 2 for non-sparsity')
     args = parser.parse_args()
     args.cuda = not args.disable_cuda and torch.cuda.is_available()

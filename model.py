@@ -277,10 +277,11 @@ class MemoryGate(nn.Module):
         return ans
     
 class Unified(nn.Module):
-    def __init__(self, read_heads, seq_len, experiment_type):
+    def __init__(self, read_heads, seq_len, experiment_type, use_cuda):
         super(Unified, self).__init__()
         self.read_heads = read_heads
         self.seq_len = seq_len
+	self.use_cuda = use_cuda
         
         self.prior = Prior(read_heads = read_heads)
         self.posterior = Posterior(read_heads = read_heads, use_memory = False)
@@ -290,18 +291,18 @@ class Unified(nn.Module):
         
         self.rnn = LSTM(input_size = 32, hidden_size = CONTROLLER_SIZE)
     
-    def forward(self, x_seq, use_cuda):
+    def forward(self, x_seq):
         loss = 0.0 # negative variational lower bound, plus (maybe) some regularization
         
         # BATCH_SIZE (= 10) x seq_len x 28 x 28
         x_seq = torch.unbind(x_seq, dim = 1) # remember, this is a BATCH
         
-        controller_hidden = self.rnn.initHidden(use_cuda)
-        controller_cell = self.rnn.initCell(use_cuda)
-	if use_cuda:
-            memory = [Variable(torch.zeros(BATCH_SIZE, 32))) for _ in range(self.seq_len)]
+        controller_hidden = self.rnn.initHidden(self.use_cuda)
+        controller_cell = self.rnn.initCell(self.use_cuda)
+	if self.use_cuda:
+            memory = [Variable(torch.zeros(BATCH_SIZE, 32).cuda()) for _ in range(self.seq_len)]
         else:
-            memory = [Variable(torch.zeros(BATCH_SIZE, 32)).cuda()) for _ in range(self.seq_len)]
+            memory = [Variable(torch.zeros(BATCH_SIZE, 32)) for _ in range(self.seq_len)]
 	     
 	reconstructed_imgs = []
         predicted_last_5 = []
@@ -318,7 +319,7 @@ class Unified(nn.Module):
 	    mem_output = torch.unbind(phi * torch.unsqueeze(gate_weights, dim = 2), dim = 1)
             
 	    z_distr = self.posterior(x_seq[s])
-            sampled_z = z_distr[0] + Variable(torch.randn(BATCH_SIZE, 32, out = z_distr.data.new()), requires_grad = False) * torch.exp(z_distr[1])
+            sampled_z = z_distr[0] + Variable(torch.randn(BATCH_SIZE, 32, out = phi.data.new()), requires_grad = False) * torch.exp(z_distr[1])
 
             x_distr = self.likelihood(sampled_z)
 
