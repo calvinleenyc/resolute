@@ -77,6 +77,9 @@ def main():
     args = parser.parse_args()
     args.cuda = not args.disable_cuda and torch.cuda.is_available()
     experiment_type = int(args.experiment_type)
+    if experiment_type not in [0, 1, 2]:
+	print("Invalid --experiment-type: should be 0, 1, or 2")
+	assert(False)
     if args.cuda:
         unified = Unified(read_heads = 5, seq_len = 25, experiment_type = experiment_type, use_cuda = True).cuda()
     else:
