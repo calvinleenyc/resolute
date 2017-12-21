@@ -240,10 +240,12 @@ class Attention(nn.Module):
     def forward(self, h):
         # returns a pair (attention_weights, regularization loss)
         # [attention_weights] is a batch_size x seq_len x read_heads tensor.
-        layer0 = self.dense2(F.relu(self.dense1(F.relu(self.dense0(h)))))
+	layer0 = self.dense2(F.relu(self.dense1(F.relu(self.dense0(h)))))
         layer0 = layer0.view([-1, self.seq_len, self.read_heads])
         # See the comment above initialization of [self.type].
-        loss = 0.0
+        loss = 0.001 * torch.sum(self.dense0.weight * self.dense0.weight) +\
+		0.001 * torch.sum(self.dense1.weight * self.dense1.weight) +\
+		0.001 * torch.sum(self.dense2.weight * self.dense2.weight)
         if self.type == 0:
             # softplus, as specified in the paper
             ans = F.softplus(layer0)
@@ -252,13 +254,13 @@ class Attention(nn.Module):
             alpha = 0.001 # This works well, it seems (based on a few experiments).
             ans = F.softplus(layer0)
             ans = ans / torch.unsqueeze(torch.sum(ans, dim = 1), dim = 1)
-            loss = alpha * torch.sum(torch.sqrt(ans + 1e-6))
+            loss += alpha * torch.sum(torch.sqrt(ans + 1e-6))
         if self.type == 2:
             # here, we allow coefficients not to sum to 1, but heavily discourage it
             ans = layer0
             beta = 10.0
             gap = torch.sum(ans, dim = 1) - 1
-            loss = beta * torch.sum(gap * gap)
+            loss += beta * torch.sum(gap * gap)
             
         return (ans, loss)
         
