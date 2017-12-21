@@ -4,7 +4,7 @@ import numpy as np
 import torch.nn.functional as F
 from torch.autograd import Variable
 
-CONTROLLER_SIZE = 128
+CONTROLLER_SIZE = 256
 
 BATCH_SIZE = 10
 
