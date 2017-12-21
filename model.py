@@ -338,7 +338,7 @@ class Unified(nn.Module):
             # update the memory
             memory[s] = sampled_z
             
-            if s >= self.seq_len - 5:
+            if s >= self.seq_len - 5: # the repeating part
                 # For purposes of viewing training progress, we don't bother sampling from z, just use the mean.
                 predicted_last_5.append(self.likelihood(z_prior[0])[0])
             
