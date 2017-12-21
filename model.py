@@ -210,7 +210,6 @@ class Posterior(nn.Module):
         return torch.unbind(ans, dim = 1) # separates means and variances; returns (mean, log sigma)
 
 class Likelihood(nn.Module):
-    # Paper says very little about this, so we do as we see fit.
     def __init__(self):
         super(Likelihood, self).__init__()
         self.z_tcnn = TransposeCNN(2)
@@ -231,7 +230,6 @@ class Attention(nn.Module):
         # 0 is to just replicate the original paper
         # 1 is to use sparsity regularization
         # 2 is to attempt to avoid sparsity
-        # To adjust the experiment type, we change the line below.
         self.type = experiment_type
         if self.type == 2:
             self.dense2 = nn.Linear(128, seq_len * read_heads, bias = False)
@@ -250,7 +248,7 @@ class Attention(nn.Module):
             ans = F.softplus(layer0)
             ans = ans / torch.unsqueeze(torch.sum(ans, dim = 1), dim = 1)
         if self.type == 1:
-            alpha = 0.001 # This works the best, it seems (based on a few experiments).
+            alpha = 0.001 # This works well, it seems (based on a few experiments).
             ans = F.softplus(layer0)
             ans = ans / torch.unsqueeze(torch.sum(ans, dim = 1), dim = 1)
             loss = alpha * torch.sum(torch.sqrt(ans + 1e-6))
