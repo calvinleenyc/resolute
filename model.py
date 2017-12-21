@@ -26,9 +26,10 @@ def kl_div(gauss1, gauss2):
     return ans
 
 class LSTM(nn.Module):
-    def __init__(self, input_size, hidden_size):
+    def __init__(self, input_size, hidden_size, use_cuda):
         super(LSTM, self).__init__()
         self.hidden_size = hidden_size
+	self.use_cuda = use_cuda
         
         self.i2f = nn.Linear(input_size + hidden_size, hidden_size)
         self.i2I = nn.Linear(input_size + hidden_size, hidden_size)
@@ -44,14 +45,14 @@ class LSTM(nn.Module):
         H = O * F.tanh(C)
         return H, C
 
-    def initHidden(self, use_cuda):
-	if use_cuda:
+    def initHidden(self):
+	if self.use_cuda:
             return Variable(torch.zeros(BATCH_SIZE, self.hidden_size).cuda())
 	else:
             return Variable(torch.zeros(BATCH_SIZE, self.hidden_size))
 
-    def initCell(self, use_cuda):
-	if use_cuda:
+    def initCell(self):
+	if self.use_cuda:
             return Variable(torch.zeros(BATCH_SIZE, self.hidden_size).cuda())
 	else:
             return Variable(torch.zeros(BATCH_SIZE, self.hidden_size))
@@ -287,7 +288,7 @@ class Unified(nn.Module):
         self.attention = Attention(read_heads = read_heads, seq_len = seq_len, experiment_type = experiment_type)
         self.memory_gate = MemoryGate(read_heads)
         
-        self.rnn = LSTM(input_size = 32, hidden_size = CONTROLLER_SIZE)
+        self.rnn = LSTM(input_size = 32, hidden_size = CONTROLLER_SIZE, use_cuda = use_cuda)
     
     def forward(self, x_seq):
         loss = 0.0 # negative variational lower bound, plus (maybe) some regularization
@@ -295,8 +296,8 @@ class Unified(nn.Module):
         # BATCH_SIZE (= 10) x seq_len x 28 x 28
         x_seq = torch.unbind(x_seq, dim = 1) # remember, this is a BATCH
         
-        controller_hidden = self.rnn.initHidden(self.use_cuda)
-        controller_cell = self.rnn.initCell(self.use_cuda)
+        controller_hidden = self.rnn.initHidden()
+        controller_cell = self.rnn.initCell()
 	if self.use_cuda:
             memory = [Variable(torch.zeros(BATCH_SIZE, 32).cuda()) for _ in range(self.seq_len)]
         else:
